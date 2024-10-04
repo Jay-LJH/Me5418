@@ -1,0 +1,10 @@
+sphinx
+sphinx-autobuild
+myst-parser
+sphinx-gallery==0.14.0
+git+https://github.com/Farama-Foundation/Celshast#egg=furo
+moviepy
+pygame
+sphinx_github_changelog
+ale_py
+tabulate
