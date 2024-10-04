@@ -2,7 +2,7 @@ import gym
 from gym import spaces
 import pygame
 import numpy as np
-
+import time
 
 class GridWorldEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
@@ -168,3 +168,9 @@ class GridWorldEnv(gym.Env):
         if self.window is not None:
             pygame.display.quit()
             pygame.quit()
+
+if __name__ == "__main__":
+    env = GridWorldEnv(render_mode="human", size=5)
+    env.reset()
+    env.render()
+    time.sleep(5)
