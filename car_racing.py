@@ -4,7 +4,7 @@ import math
 from typing import Optional, Union
 
 import numpy as np
-
+import cv2
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.box2d.car_dynamics import Car
@@ -532,7 +532,7 @@ class CarRacing(gym.Env, EzPickle):
                     "instances of this message)"
                 )
         self.car = Car(self.world, *self.track[0][1:4])
-
+        self.count = 0 # print state every 100 steps
         if self.render_mode == "human":
             self.render()
         return self.step(None)[0], {}
@@ -556,11 +556,15 @@ class CarRacing(gym.Env, EzPickle):
                 self.car.brake(0.8 * (action == 4))
 
         self.car.step(1.0 / FPS)
-        self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
+        self.world.Step(1.0 / FPS, 6 * 30, 2 * 30) # 6*30 and 2*30 are velocity and position iterations respectively
         self.t += 1.0 / FPS
-
+        
         self.state = self._render("state_pixels")
-
+        self.count += 1
+        if self.count % 100 == 0:
+            state_bgr = cv2.cvtColor(self.state, cv2.COLOR_RGB2BGR) 
+            print(self.state)
+            cv2.imshow("state", state_bgr)
         step_reward = 0
         terminated = False
         truncated = False
