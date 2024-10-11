@@ -13,22 +13,7 @@ from Box2D.b2 import contactListener, fixtureDef, polygonShape
 import pygame
 from pygame import gfxdraw
 import random
-
-class FrictionDetector(contactListener):
-    def __init__(self, env, lap_complete_percent):
-        contactListener.__init__(self)
-        self.env = env
-        self.lap_complete_percent = lap_complete_percent
-
-    def BeginContact(self, contact):
-        self._contact(contact, True)
-
-    def EndContact(self, contact):
-        self._contact(contact, False)
-
-    def _contact(self, contact, begin):
-        # todo: implement collision between car and box and reward the car
-        pass
+from scipy.spatial.distance import euclidean
 
 class box:
     def __init__(self, env,x, y, width, height,expire_time):
@@ -43,15 +28,25 @@ class box:
             position=(x, y),
             shapes=polygonShape(box=(width/2, height/2)),
         )
-    def reward(self):
-        if(self.env.t<self.expire_time):
-            return 0
-        else:
+    def reward(self,car):
+        reward = 0  
+        distance = euclidean((car.hull.position), (self.x, self.y))
+        if distance < custom_parameter.crash_distance: # close enough to pick up the box
+            if car.hull.velocity.norm() > 0.5 or car.carry is not None: # if the car is moving or already carrying a box
+                reward += custom_parameter.crash_reward
+            else:   # pick up the box
+                car.carry = self
+                reward += custom_parameter.pickup_reward
+                self.env.box_matrix[self.x][self.y] = 0
+                self.destroy() # destroy the box on the map
+
+        if(self.env.t>self.expire_time):
             if self.expired:
-                return custom_parameter.expire_reward_continuous
+                reward += custom_parameter.expire_reward_continuous
             else:
                 self.expired = True
-                return custom_parameter.expire_reward
+                reward += custom_parameter.expire_reward
+        return reward
 
     def destroy(self):
         self.world.DestroyBody(self.body)
@@ -65,22 +60,8 @@ create box
 calculate reward
 render environment for human & imitation learning
 '''
-class CustomCarRacing(gym.Env, EzPickle):
-    def __init__(self,render_mode: Optional[str] = None,
-        verbose: bool = False,
-        lap_complete_percent: float = 0.4,
-        domain_randomize: bool = False,
-        ):
-        EzPickle.__init__(
-            self,
-            render_mode,
-            verbose,
-            lap_complete_percent,
-            domain_randomize,
-            True, # continuous
-        )
-        self.domain_randomize = domain_randomize
-        self.lap_complete_percent = lap_complete_percent
+class CustomCarRacing(gym.Env):
+    def __init__(self):
         self.box_matrix = np.zeros((custom_parameter.width, custom_parameter.height))
         self.action_space = spaces.Box(
                 np.array([-1, 0, 0]).astype(np.float32),
@@ -91,8 +72,7 @@ class CustomCarRacing(gym.Env, EzPickle):
         ) # observation space is a height*width*3 numpy array, representing the RGB image of the map
         self.reward = 0.0
         self.prev_reward = 0.0
-        self.contactListener_keepref = FrictionDetector(self, lap_complete_percent)
-        self.world = Box2D.b2World((0, 0), contactListener=self.contactListener_keepref) #（0，0） gravity vector        
+        self.world = Box2D.b2World((0, 0)) #（0，0） gravity vector        
         self.FPS = custom_parameter.FPS
         self.width = custom_parameter.width
         self.height = custom_parameter.height
@@ -110,24 +90,28 @@ class CustomCarRacing(gym.Env, EzPickle):
         return self.get_obs(), self.reward, self.done
 
     def calculate_reward(self):
-        step_reward = 0
-        x,y = self.car.hull.position
-        vx, vy = self.car.hull.linearVelocity
-
+        step_reward = custom_parameter.step_reward #small neg reward for each step
+        for b in self.box_list:
+            step_reward += b.reward(self.car)
+        if self.car.carry is not None: # add reward for reaching destination
+            distance = euclidean((self.car.hull.position), (self.destionation))
+            if distance < custom_parameter.crash_distance and self.car.hull.velocity.norm() < 0.5:
+                self.car.carry = None
+                step_reward += custom_parameter.reach_reward   
+        return step_reward  
+       
     def get_obs(self):
+        #todo: get observation
         pass
 
     def reset(self):
         random.seed(custom_parameter.random_seed)
-        self.world.contactListener_bug_workaround = FrictionDetector(
-            self, self.lap_complete_percent
-        )
         self.reward = 0.0
         self.prev_reward = 0.0
-        self.world.contactListener = self.world.contactListener_bug_workaround
         self.done = False 
         self.next_create_time = 0 #time to create next box, create a box at time 0
         self.car = Car(self.world, 0, custom_parameter.width/2, custom_parameter.height/2) #create a car in the middle of the map
+        self.car.carry = None
         self.box_list = []
         self.t = 0.0
         self.destionation = (random.randint(0, self.width), random.randint(0, self.height))
@@ -141,11 +125,12 @@ class CustomCarRacing(gym.Env, EzPickle):
                 x = np.random.randint(0, self.width)
                 y = np.random.randint(0, self.height)
             self.box_matrix[x][y] = 1
-            self.box_list.append(box(self.world, x, y, custom_parameter.box_width, custom_parameter.box_height, 
-                                     random.normal(custom_parameter.expire_time, custom_parameter.sigma)))
+            self.box_list.append(box(self, x, y, custom_parameter.box_width, custom_parameter.box_height, 
+                                     np.random.normal(custom_parameter.expire_time, custom_parameter.sigma)))
 
 
     def render(self, mode='human', close=False):
+        #todo: render the environment in different mode: human & RGB
         pass
 
     def _render(self, mode='human', close=False):

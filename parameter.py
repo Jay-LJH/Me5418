@@ -12,8 +12,9 @@ class custom_parameter:
     box_color = (0, 255, 0) #box color
     FPS = 50 #frame per second
     destory_time = 20 #destory a box after expired 20 seconds
+    crash_distance = 0.2 #distance to crash
 
-
+    step_reward = -0.1 #reward for each step
     crash_reward = -10 #reward for crash
     pickup_reward = 100 #reward for pickup each box
     reach_reward = 100 #reward for reach destination
