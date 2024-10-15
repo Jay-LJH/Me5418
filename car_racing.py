@@ -561,10 +561,6 @@ class CarRacing(gym.Env, EzPickle):
         
         self.state = self._render("state_pixels")
         self.count += 1
-        if self.count % 100 == 0:
-            state_bgr = cv2.cvtColor(self.state, cv2.COLOR_RGB2BGR) 
-            print(self.state)
-            cv2.imshow("state", state_bgr)
         step_reward = 0
         terminated = False
         truncated = False
@@ -803,7 +799,6 @@ class CarRacing(gym.Env, EzPickle):
 
 if __name__ == "__main__":
     a = np.array([0.0, 0.0, 0.0])
-
     def register_input():
         global quit, restart
         for event in pygame.event.get():
