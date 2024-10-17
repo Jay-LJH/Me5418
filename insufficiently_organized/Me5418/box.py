@@ -4,6 +4,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.box2d.car_dynamics import Car
+#from gymnasium.error import DependencyNotInstalled, InvalidAction
 from gymnasium.utils import EzPickle
 from parameter import custom_parameter
 from datetime import datetime, timedelta
@@ -15,6 +16,7 @@ import random
 from scipy.spatial.distance import euclidean
 
 import Logger
+import 
 
 class box:
     def __init__(self, env,x, y, width, height,expire_time):
