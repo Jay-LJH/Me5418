@@ -45,11 +45,13 @@ class cargo_moving_truck(gym.Env):
     '''
     def __init__(self, render_mode = 'rgb_array'):
 
-        # The action space is 3D, namely steer, gas and brake.
-        self.action_space = spaces.Box(
+        # The action space is 3D, namely steer, gas and brake union load cargo.
+        # Truck has to stop in order to carry load
+        self.action_space = Union[
+            spaces.Box(
                 np.array([-1, 0, 0]).astype(np.float32),
                 np.array([+1, +1, +1]).astype(np.float32),
-            ) 
+            ), 0]
 
         # The observation space is a height * width * 3 numpy array, representing the RGB image of the map.
         self.observation_space = spaces.Box(
@@ -103,19 +105,22 @@ class cargo_moving_truck(gym.Env):
 
         # Take the action if the pass in is in action space, or do nothing if no action specified.
         if action is not None:
-            self.car.steer(-action[0])
-            self.car.gas(action[1])
-            self.car.brake(action[2])
+            self.car.steer(-action[0][0])
+            self.car.gas(action[0][1])
+            self.car.brake(action[0][2])
+
+        # TODO: pick up cargo when action[1][0] == 1
 
         # Step everything in the environment by time.
-        self.car.step(1.0 / self.FPS)
-        self.t += 1.0 / self.FPS
-        self.world.Step(1.0 / self.FPS, 6 * 30, 2 * 30)
+        time_delta = 1.0 / self.FPS
+        self.car.step(time_delta)
+        self.t += time_delta
+        self.world.Step(time_delta, 6 * 30, 2 * 30)
 
         # TODO: enable box generation at random here.
         self.create_box()
 
-        # TODO: enable rendering in rgb_array mode.
+        # TODO: enable rendering in 'rgb_array mode' (here?).
         self.reward = self.calculate_reward()
         if self.render_mode == 'human':
             self.render()
@@ -155,11 +160,13 @@ class cargo_moving_truck(gym.Env):
             random.seed(seed)
         else:
             random.seed(datetime.milliseconds)
-        
+
+        # I do not understand whether there is any necessity writing gravity in a 2D problem.
         self.world = Box2D.b2World((0, 0)) # (0,0) gravity vector
 
-        # Specify world size
-        self.box_matrix = np.zeros((constants.width, constants.height))
+        # Store cargo locations 
+        # We are doing continuous, but this looks grid-like. Are there better representations?
+        self.cargo_matrix = np.zeros((constants.width, constants.height))
 
         # Initialize reward values
         self.reward = 0.0
@@ -177,7 +184,7 @@ class cargo_moving_truck(gym.Env):
         self.truck.carry = None
         self.destionation = (random.randint(0, self.width), random.randint(0, self.height))
         self.t = 0
-        self.box_list = []
+        self.cargo_list = []
 
         # I do not understand these two initializations for now.
         self.screen = None
@@ -219,14 +226,14 @@ class cargo_moving_truck(gym.Env):
         if self.screen is None and mode == "human":
             pygame.init()
             pygame.display.init()
-            self.screen = pygame.display.set_mode((custom_parameter.video_width, custom_parameter.video_height))
+            self.screen = pygame.display.set_mode((constants.video_width, constants.video_height))
         if self.clock is None:
             self.clock = pygame.time.Clock()
-        self.surf = pygame.Surface((custom_parameter.video_width, custom_parameter.video_height))
+        self.surf = pygame.Surface((constants.video_width, constants.video_height))
         # computing transformations
         angle = -self.car.hull.angle
         # Animating first second zoom.
-        zoom = 0.1 * 2.7 * max(1 - self.t, 0) + 2.7 * 6.0 * min(self.t, 1) #6.0 scale,2.7 zoom
+        zoom = 0.1 * 2.7 * max(1 - self.t, 0) + 2.7 * 6.0 * min(self.t, 1) #6.0 scale, 2.7 zoom
         scroll_x = -(self.car.hull.position[0]) * zoom
         scroll_y = -(self.car.hull.position[1]) * zoom
         trans = pygame.math.Vector2((scroll_x, scroll_y)).rotate_rad(angle)
