@@ -60,20 +60,20 @@ class box:
         else:
             self.collision_enter = False
 
-        if(self.env.t > self.expire_time): # if the box is expired
+        if self.env.t > self.expire_time: # if the box is expired
             if self.expired:
                 reward += custom_parameter.expire_reward_continuous
             else:
                 self.expired = True
                 reward += custom_parameter.expire_reward
-                logger.log("Expire")
+                logger.log("expire box at ({},{}),expire time: {}".format(self.x, self.y, self.expire_time))
 
-        if self.env.t>self.expire_time + custom_parameter.destory_time: #destroy the box after it expired for 20 seconds
+        if (self.env.t>self.expire_time + custom_parameter.destory_time): #destroy the box after it expired for 20 seconds
             self.destroy_on_map()
             self.destroy()
             if car.carry == self:
                 car.carry = None
-            logger.log("Destroy")
+            logger.log("Destroy box at ({},{},destroy time: {})".format(self.x, self.y,self.env.t))
         return reward
 
     def destroy_on_map(self):
@@ -168,7 +168,7 @@ class CustomCarRacing(gym.Env):
                 x = np.random.randint(0, self.width)
                 y = np.random.randint(0, self.height)
             self.box_list.append(box(self, x, y, custom_parameter.box_width, custom_parameter.box_height, 
-                                     np.random.normal(custom_parameter.expire_time, custom_parameter.sigma)))
+                                     self.t + np.random.normal(custom_parameter.expire_time, custom_parameter.sigma)))
 
     # copy from gymnasium.envs.box2d.car_racing
     def render(self, mode='human', close=False):
@@ -252,8 +252,8 @@ class CustomCarRacing(gym.Env):
                 self.surf, box, custom_parameter.box_color, zoom, translation, angle
             )
         # draw destination
-        dest = [self.destionation, (self.destionation[0] + 1, self.destionation[1]),\
-                (self.destionation[0] + 1, self.destionation[1]+1),(self.destionation[0], self.destionation[1]+1)]
+        dest = [self.destionation, (self.destionation[0] + custom_parameter.box_width, self.destionation[1]),\
+                (self.destionation[0] + custom_parameter.box_width, self.destionation[1]+custom_parameter.box_height),(self.destionation[0], self.destionation[1]+custom_parameter.box_height)]
         self._draw_colored_polygon(
             self.surf, dest, custom_parameter.dest_color, zoom, translation, angle
         )
@@ -333,7 +333,7 @@ if __name__ == "__main__":
             total_reward += r
             if steps % 200 == 0 or terminated :
                 print("\naction " + str([f"{x:+0.2f}" for x in a]))
-                print(f"step {steps} total_reward {total_reward:+0.2f}")
+                print(f"step {steps} total_reward {total_reward:+0.2f} at time {env.t}")
                 positions = [(i, j) for i, row in enumerate(s["box"]) for j, value in enumerate(row) if value != 0]
                 print(f"boxes: {positions}")
             steps += 1

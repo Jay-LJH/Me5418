@@ -7,15 +7,15 @@ class custom_parameter:
     video_width = 1000 #video width in pygame
     video_height = 800 #video height in pygame
     random_seed = 42
-    create_time = 10 #create a new box average each 10 seconds 
-    expire_time = 30 #expire a box after average 30 seconds
+    create_time =  5 #create a new box average each 10 seconds 
+    expire_time = 10 #expire a box after average 30 seconds
+    destory_time = 2 #destory a box after expired 20 seconds
     sigma = 1 #sigma for normal distribution
     box_width = 2   #box width
     box_height = 2  #box height
     FPS = 50 #frame per second
-    destory_time = 20 #destory a box after expired 20 seconds
-    crash_distance = 2 #distance to crash
-    crash_speed = 1 #speed to crash
+    crash_distance = 5 #distance to crash
+    crash_speed = 35 #speed to crash
 
     bg_color = np.array([102, 204, 102])
     grass_color = np.array([102, 230, 102])
