@@ -14,6 +14,8 @@ import pygame
 from pygame import gfxdraw
 import random
 from scipy.spatial.distance import euclidean
+import time
+import cv2
 
 class logger:
     def __init__(self):
@@ -115,6 +117,7 @@ class CustomCarRacing(gym.Env):
         self.world.Step(1.0/self.FPS, 6*30, 2*30)
         self.create_box()
         self.reward = self.calculate_reward()
+        self.state = self.render('rgb_array')
         if self.render_mode == 'human':
             self.render()
         return self.get_obs(), self.reward, self.done
@@ -134,7 +137,7 @@ class CustomCarRacing(gym.Env):
         return step_reward  
        
     def get_obs(self):
-        return {"box": self.box_matrix,"position": self.car.hull.position, "velocity": self.car.hull.linearVelocity, 
+        return {"state":self.state,"box": self.box_matrix,"position": self.car.hull.position, "velocity": self.car.hull.linearVelocity,"angle": self.car.hull.angle,
                 "carry": self.car.carry.expire_time if self.car.carry is not None else -1,"destination": self.destionation, "time": self.t}
 
     def reset(self):
@@ -201,6 +204,9 @@ class CustomCarRacing(gym.Env):
             self.screen.fill(0)
             self.screen.blit(self.surf, (0, 0))
             pygame.display.flip()
+            
+        if mode == "rgb_array":
+            return self._create_image_array(self.surf, (custom_parameter.width, custom_parameter.height))
 
     def render_objects(self,zoom, translation, angle):
         # draw background
@@ -267,8 +273,14 @@ class CustomCarRacing(gym.Env):
         ):
             gfxdraw.aapolygon(self.surf, poly, color)
             gfxdraw.filled_polygon(self.surf, poly, color)
-
-
+   
+    # copy from gymnasium.envs.box2d.car_racing
+    def _create_image_array(self, screen, size):
+        scaled_screen = pygame.transform.smoothscale(screen, size)
+        return np.transpose(
+            np.array(pygame.surfarray.pixels3d(scaled_screen)), axes=(1, 0, 2)
+        )
+        
     def close(self):
         if self.screen is not None:
             pygame.display.quit()
@@ -306,8 +318,8 @@ if __name__ == "__main__":
             if event.type == pygame.QUIT:
                 quit = True
 
-    env = CustomCarRacing()
-
+    env = CustomCarRacing(render_mode="human")
+    env.reset()
     quit = False
     while not quit:
         env.reset()

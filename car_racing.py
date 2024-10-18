@@ -783,7 +783,7 @@ class CarRacing(gym.Env, EzPickle):
         ):
             gfxdraw.aapolygon(self.surf, poly, color)
             gfxdraw.filled_polygon(self.surf, poly, color)
-
+    
     def _create_image_array(self, screen, size):
         scaled_screen = pygame.transform.smoothscale(screen, size)
         return np.transpose(
