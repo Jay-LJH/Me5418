@@ -1,23 +1,7 @@
-import math
-from typing import Optional, Union
-import numpy as np
-import gymnasium as gym
-from gymnasium import spaces
-from gymnasium.envs.box2d.car_dynamics import Car
-from gymnasium.utils import EzPickle
-from parameter import custom_parameter
-from datetime import datetime, timedelta
-import Box2D
-from Box2D.b2 import contactListener, fixtureDef, polygonShape
-import pygame
-from pygame import gfxdraw
-import random
-from scipy.spatial.distance import euclidean
 
-import Logger
-
-class box:
-    def __init__(self, env,x, y, width, height,expire_time):
+class cargo:
+    
+    def __init__(self, env, x, y, width, height,expire_time):
         self.env = env
         self.x = x
         self.y = y
@@ -32,6 +16,7 @@ class box:
         # )
         self.env.box_matrix[x][y] = expire_time
         self.collision_enter = False
+        
     def reward(self,car):
         reward = 0  
         distance = euclidean((car.hull.position), (self.x, self.y))
