@@ -1,35 +1,72 @@
 import numpy as np
 
 class constants:
+
+    # Verbose switch
+    LOGGER = True 
+
+    # Switch between partially observable and fully observable
+    FULLY_OBSERVABLE = False
+
+    # Map size
+    WIDTH = 96
+    HEIGHT = 96
+
+    # Rendered zoom magnification
+    ZOOM = 5
+
+    # Rendered image size
+    VIDEO_WIDTH = 320 
+    VIDEO_HEIGHT = 200
+
+    # Default objects gen seed
+    RANDOM_SEED = 40
+
+    # Bleed so that objects does not generate outside environment
+    BLEED = 16
+
+    # Radian of half-circle
+    PI = 3.1415927
+
+    # Floating point equivalance threshold
+    THRESHOLD = 0.01
+
+    # Cargo size and random generation
+    CARGO_WIDTH = 2
+    CARGO_HEIGHT = 2
+
+    # Generate at least 2 cargoes and maximum of 5 cargoes, uniform distribution.
+    MIN_NUM_CARGOES = 2
+    MAX_NUM_CARGOES = 5
+
+    # Cargo creation has uniform distribution of minimum 30s and maximum 60s.
+    CREATE_TIME_MIN = 30
+    CREATE_TIME_MAX = 60
     
-    logger = True # verbose switch
-    width = 96 # width of map
-    height = 96 # height of map
-    video_width = 1000 # video width in pygame
-    video_height = 800 # video height in pygame
-    random_seed = 42
-    create_time = 10 #create a new box average each 10 seconds 
-    expire_time = 30 #expire a box after average 30 seconds
-    sigma = 1 #sigma for normal distribution
-    box_width = 2   #box width
-    box_height = 2  #box height
-    FPS = 50 #frame per second
-    destory_time = 20 #destory a box after expired 20 seconds
-    crash_distance = 2 #distance to crash
-    crash_speed = 1 #speed to crash
+    # Cargo expiration has uniform distribution of minimum 30s and maximum 60s.
+    EXPIRE_TIME_MIN = 30 
+    EXPIRE_TIME_MAX = 60
 
-    bg_color = np.array([102, 204, 102])
-    grass_color = np.array([102, 230, 102])
-    box_color = np.array([102, 102, 102])
-    dest_color = np.array([255, 255, 255])
-    scale = 6.0  # Track scale
-    playfield = 2000 / scale  # Game over boundary
-    zoom = 2.7
-    max_shape_dim = 381
+    # Environment rendering metadata
+    FPS = 60
 
-    step_reward = -0.1 #reward for each step
-    crash_reward = -10 #reward for crash
-    pickup_reward = 100 #reward for pickup each box
-    reach_reward = 100 #reward for reach destination
-    expire_reward = -10 #reward for expire box
-    expire_reward_continuous = -0.01 #reward for expire box each frame
+    # Render colors
+    BG_COLOR = np.array([102, 204, 102])
+    GRASS_COLOR = np.array([102, 230, 102])
+    BOX_COLOR = np.array([102, 102, 102])
+    DEST_COLOR = np.array([255, 255, 255])
+    
+    # Environment/physics definitions
+    MAX_TRUNCATION = 120 # Maximum time out in seconds
+    REACH_DISTANCE = 1 # Radius to be considered reaching cargo/destintation for load/unload
+    CRASH_SPEED = 0.5 # Speed to crash cargo
+    
+    # Reward structure, time outs and accidents lead to truncation directly 
+    CRASH_REWARD = -50 # Penalty for crash with a cargo or border, accidents are strictly not allowed.
+    CARGO_REACH_DEST_REWARD = 20 # Reward for cargo reach destination
+    EXPIRE_REWARD = -10 # Penalty for expire box
+    EXPIRE_REWARD_CONTINUOUS = -0.1 # Penalty for expire box each second
+    STOP_REWARD = 0.02 # Reward for stop per second, energy saving
+
+    # Rendering rectangles optimization utility
+    MAX_SHAPE_DIM = 64

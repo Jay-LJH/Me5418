@@ -3,7 +3,7 @@ from constants import constants
 class logger:
     
     def __init__(self):
-        self.log = constants.logger
+        self.log = constants.LOGGER
         
     def log(message):
         if logger.log:

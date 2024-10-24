@@ -1,7 +1,7 @@
 
 class cargo:
     
-    def __init__(self, env, x, y, width, height,expire_time):
+    def __init__(self, env, x, y, width, height, expire_time):
         self.env = env
         self.x = x
         self.y = y
@@ -10,13 +10,16 @@ class cargo:
         self.expire_time = expire_time
         self.expired = False
         self.carry = False
-        # self.body= self.env.world.CreateStaticBody(
-        #     position=(x, y),
-        #     shapes=polygonShape(box=(width/2, height/2)),
-        # )
         self.env.box_matrix[x][y] = expire_time
         self.collision_enter = False
-        
+
+    def step(self, timedelta):
+        pass
+
+    def draw(self, surface, zoom, translation, angle, draw_particles=True):
+        pass
+
+    '''
     def reward(self,car):
         reward = 0  
         distance = euclidean((car.hull.position), (self.x, self.y))
@@ -59,3 +62,4 @@ class cargo:
         
     def destroy(self):
         self.env.box_list.remove(self)
+    '''

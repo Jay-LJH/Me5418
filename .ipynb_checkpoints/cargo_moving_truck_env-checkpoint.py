@@ -32,6 +32,7 @@ from truck import truck
 from cargo import cargo
 from destination import destination
 from utils import utils
+from copy import copy
 
 '''
 To avoid misleading wording and allow readability, some wordings in this project are changed.
@@ -52,29 +53,42 @@ class cargo_moving_truck_env(gym.Env):
     '''
     def __init__(self, render_mode = 'rgb_array'):
 
-        # Set constants
+        # Set constants.
         self.metadata["render_modes"] = ['human', 'rgb_array']
         self.metadata["FPS"] = constants.FPS
-        self.metadata["width"] = constants.width
-        self.metadata["height"] = constants.height
+        self.metadata["width"] = constants.WIDTH
+        self.metadata["height"] = constants.HEIGHT
 
         # The action space is 3D, namely steer, gas and brake.
-        # Truck has to stop in order to carry load
+        # Carry/Unload is implemented such that truck has to stop in order to carry load
         self.action_space = spaces.Box(
                 np.array([-1, 0, 0]).astype(np.float32),
                 np.array([+1, +1, +1]).astype(np.float32),
             )
 
-        # The observation space is a height * width * 3 numpy array, representing the RGB image of the map.
-        self.observation_space = spaces.Box(
-            low = 0, high = 255, shape = (constants.height, constants.width, 3), dtype = np.uint8
-        )            
-
-        # Set display size and rate as specified in constants.constants.
-        # Not syncronized with environment registration standard.
-        # self.FPS = constants.FPS
-        # self.width = constants.width
-        # self.height = constants.height
+        # Different definitions of observation space for partially observable and the fully observable ones.
+        if constants.FULLY_OBSERVABLE:
+            # The full observation space is the map size, the position and orientation of the truck itself,
+            # the position and orientation, appear time and expiration of boxes, and the position and orientation of destination.
+            # Map size is defined in 'constants.WIDTH' and 'constants.HEIGHT'
+            # The first index is for the truck, the second is for the destination, and the rest are for cargoes.
+            # Therefore, the data structure is defined by the following:
+            self.observation_space = spaces.Box(
+                # lower bound 0 for positions because we need to represent the cargo carried on truck
+                # and only for carried because we have bleed.
+                # lower bound 0 for create time and expire time because we have truck and
+                # destination with no create time and expire time.
+                low = np.array([0.0, 0.0, 0.0, 0.0, 0.0]), 
+                high = np.array([constants.WIDTH - constants.BLEED, constants.HEIGHT - constants.BLEED, 
+                                 2 * constants.PI, constants.CREATE_TIME_MAX, constants.EXPIRE_TIME_MAX]), 
+                shape = (5, ), dtype = np.float32
+            )
+        else:
+            # The partial observation space is the same as human operation.
+            # i.e. It is a height * width * 3 numpy array, representing the rendered surface.
+            self.observation_space = spaces.Box(
+                low = 0, high = 255, shape = (constants.HEIGHT, constants.WIDTH, 3), dtype = np.uint8
+            )
 
         # Set render_mode, seems not possible for headless machines to do 'human' render mode.
         # We do 'rgb_array' render mode instead, on headless machines.
@@ -116,47 +130,40 @@ class cargo_moving_truck_env(gym.Env):
         # Create a 2D world with no gravity, for the purpose of the project.
         self.world = Box2D.b2World((0, 0)) # (0, 0) gravity vector
 
-        # Store cargo locations 
-        # We are doing continuous, but this looks grid-like. Are there better representations?
-        # self.cargo_matrix = np.zeros((constants.width, constants.height))
+        # Randomly generate objects in question.
+        # Specificly, they are 'self.truck', 'self.cargo', 'self.destination' and determine
+        # 'self.world_gen', which is the observation space if the envionment is fully observable.
+        self._generate_world()
 
-        # Initialize reward values
+        # Initialize reward.
         self.reward = 0.0
-        self.prev_reward = 0.0
 
-        # Initialize termination/truncation indicators
+        # Initialize termination/truncation indicators.
         self.terminated = False
         self.truncated = False
 
-        # Create every object we need at beginning
-        # TODO: we need the 'truck' object to be a child object of 'car' and in a separate file
-        # Won't it be better if the 'truck' has a random position at the beginning?
-        self.next_create_time = 0 # Time to create next box, create a box at time 0
-        '''
-        self.truck = Car(self.world, 0, constants.width / 2, constants.height / 2) # Create a car in the middle of the map
-        self.truck.carry = None
-        '''
-        self.truck = truck(self.world, 0, constants.width / 2, constants.height / 2)
-        '''
-        self.destionation = (random.randint(0, self.width), random.randint(0, self.height))
-        
-        self.destination = destination(random.randint(0, self.width), random.randint(0, self.height))
-        '''
+        # Initialize timestep.
         self.t = 0
-        '''
-        self.cargo_list = []
-        '''
+        
+        # Set time clock for pygame.
+        self.clock = pygame.time.Clock()
 
-        # Initialize pygame objects for rendering
+        # Initialize screen for human manipuation.
         self.screen = None
-        self.clock = None
 
         # Nothing to put into 'info' yet
         if self.render_mode == 'human':
+            # Initialize the display window if the environment is human controlled.
+            pygame.init()
+            pygame.display.init()
+            self.screen = pygame.display.set_mode((constants.VIDEO_WIDTH, constants.VIDEO_HEIGHT))
             self.render()
 
         if self.render_mode == 'rgb_array':
-            return (self.render, {})
+            if constants.FULLY_OBSERVABLE:
+                return (self.full_observation, {})
+            else:
+                return (self.render(), {})
             
         return (None, {})
 
@@ -185,56 +192,28 @@ class cargo_moving_truck_env(gym.Env):
     '''
 
     # For the purpose of this project, we only implement 'human' and 'rgb_array' modes. Treat other 'render_modes' as None.
-    # From gymnasium.envs.box2d.car_racing
+    # From gymnasium.envs.box2d.car_racing.
     def render(self, mode = 'rgb_array', close = False) -> Union[np.array, list[np.array], None]:
 
-        # No need to set font
-        # pygame.font.init()
+        # Recreate the frame surface for rendering.
+        self.surface = pygame.Surface((constants.VIDEO_WIDTH, constants.VIDEO_HEIGHT))
 
-        # Render the display window if the environment is human controlled.
-        if self.screen is None and mode == "human":
-            pygame.init()
-            pygame.display.init()
-            self.screen = pygame.display.set_mode((constants.video_width, constants.video_height))
-
-        # Set time clock for pygame
-        if self.clock is None:
-            self.clock = pygame.time.Clock()
-
-        # Recreate the frame surface
-        self.surface = pygame.Surface((constants.video_width, constants.video_height))
-
-        # Computing transformations
+        # Computing transformations.
         angle = -self.truck.hull.angle
 
-        '''
-        # Animating first second zoom.
-        zoom = 0.1 * 2.7 * max(1 - self.t, 0) + 2.7 * 6.0 * min(self.t, 1) # 6.0 scale, 2.7 zoom
-        scroll_x = -(self.truck.hull.position[0]) * zoom
-        scroll_y = -(self.truck.hull.position[1]) * zoom
+        # Compute rendering parameters for 3rd person, with our agent on the center of vision.
+        scroll_x = -(self.truck.hull.position[0]) * constants.ZOOM
+        scroll_y = -(self.truck.hull.position[1]) * constants.ZOOM
         trans = pygame.math.Vector2((scroll_x, scroll_y)).rotate_rad(angle)
-        trans = (constants.video_width / 2 + trans[0], constants.video_height / 4 + trans[1])
-        self.render_objects(zoom, trans, angle)
-        
-        self.truck.draw(
-            self.surface,
-            zoom,
-            trans,
-            angle,
-            mode not in ["state_pixels_list", "state_pixels"],
-        )
-        '''
+        trans = (constants.VIDEO_WIDTH / 2 + trans[0], constants.VIDEO_HEIGHT / 4 + trans[1])
 
-        zoom = 2.7 * 6.0 # 6.0 scale, 2.7 zoom
-        scroll_x = -(self.truck.hull.position[0])
-        scroll_y = -(self.truck.hull.position[1])
-        trans = pygame.math.Vector2((scroll_x, scroll_y)).rotate_rad(angle)
-        trans = (constants.video_width / 2 + trans[0], constants.video_height / 4 + trans[1])
-        self.render_objects(zoom, trans, angle)
-        
+        # Render the 'habor' in question.
+        self._render_field(trans, angle)
+
+        # Render our agent, the truck.
         self.truck.draw(
             self.surface,
-            zoom,
+            constants.ZOOM,
             trans,
             angle,
             mode not in ["state_pixels_list", "state_pixels"],
@@ -250,10 +229,9 @@ class cargo_moving_truck_env(gym.Env):
             pygame.display.flip()
 
         if mode == "rgb_array":
-            return self._create_image_array(self.surface, (constants.width, constants.height))
+            return self._create_image_array(self.surface, (constants.VIDEO_WIDTH, constants.VIDEO_HEIGHT))
 
         return None
-        
 
     '''
     From OpenAI docs
@@ -289,33 +267,29 @@ class cargo_moving_truck_env(gym.Env):
     distinguish truncation and termination, however this is deprecated in favour of returning 
     terminated and truncated variables.
     '''
-    def step(self, action:Union[np.ndarray, int]) -> tuple[np.array, float, bool, bool, dict[str, Any]]:
+    def step(self, action:np.ndarray) -> tuple[np.array, float, bool, bool, dict[str, Any]]:
 
         # Step everything in the environment by time.
-        time_delta = 1.0 / self.FPS
+        time_delta = 1.0 / self.metadata['FPS']
         self.t += time_delta
         self.world.Step(time_delta, 6 * 30, 2 * 30)
         self.truck.step(action, time_delta)
-        '''
-        for cargo in self.cargo_list:
-            cargo.step(time_delta)
 
-        self.destination.step(self.truck)
-        '''
-        
-        
+        # Next, step the God observation.
+        self._full_observation_step()
 
-        # TODO: enable box generation at random here.
+        # Finally, calculate reward for this step.
+        self._calculate_reward_step()
 
-        # TODO: enable rendering in 'rgb_array mode' (here?).
-        self.reward = self.calculate_reward()
+        # Render to window directly if human manipulation.
         if self.render_mode == 'human':
             self.render()
 
         # TODO: Not sure yet what to put into 'info' yet.
-        return self.render(), self.reward, self.terminated, self.truncated, {}
-
-    
+        if constants.FULLY_OBSERVABLE:
+            return self.full_observation, self.reward, self.terminated, self.truncated, {}
+        else:
+            return self.render(), self.reward, self.terminated, self.truncated, {}
 
     '''
     From OpenAI docs
@@ -328,22 +302,31 @@ class cargo_moving_truck_env(gym.Env):
     closed environment has no effect and won’t raise an error.
     '''
     def close(self):
+        # Close pygame window
         if self.screen is not None:
             pygame.display.quit()
             pygame.quit()
 
+        # Release memory used by 'self.full_observation' and 'self.last_observation', prevent memory leaks.
+        del self.full_observation
+        del self.last_observation
+
+        # TODO: Delete all the rest objects, arraylists here.
+
     # Some of the followings are helper functions.
     # I might think them private, does not make sense for others to call them.
 
-    # copy from gymnasium.envs.box2d.car_racing
+    # Enable rgb_array rendering.
+    # Copy from gymnasium.envs.box2d.car_racing.
     def _create_image_array(self, screen, size):
         scaled_screen = pygame.transform.smoothscale(screen, size)
         return np.transpose(
             np.array(pygame.surfarray.pixels3d(scaled_screen)), axes=(1, 0, 2)
         )
 
-    def render_objects(self, zoom, translation, angle):
-        # draw background
+    # Render the 'habor' in question.
+    def _render_field(self, translation, angle):
+        # Draw background as a dark-green surface.
         bounds = 96
         field = [
             (bounds, bounds),
@@ -352,11 +335,11 @@ class cargo_moving_truck_env(gym.Env):
             (0, bounds),
         ]
         utils.draw_colored_polygon(
-            self.surface, field, constants.bg_color, zoom, translation, angle, clip=False
+            self.surface, field, constants.BG_COLOR, constants.ZOOM, translation, angle, clip = False
         )
 
-        # draw grass
-        grass_dim = bounds //20
+        # Draw grass as light-green grids.
+        grass_dim = bounds // 20
         grass = []
         for x in range(0, 20, 2):
             for y in range(0, 20, 2):
@@ -370,66 +353,63 @@ class cargo_moving_truck_env(gym.Env):
                 )
         for poly in grass:
             utils.draw_colored_polygon(
-                self.surface, poly, constants.grass_color, zoom, translation, angle
+                self.surface, poly, constants.GRASS_COLOR, constants.ZOOM, translation, angle
             )
-        '''
-        # draw box
-        for b in self.box_list:
-            if b.carry:
-                continue
-            box = [
-                (b.x + custom_parameter.box_width / 2, b.y + custom_parameter.box_height / 2),
-                (b.x - custom_parameter.box_width / 2, b.y + custom_parameter.box_height / 2),
-                (b.x - custom_parameter.box_width / 2, b.y - custom_parameter.box_height / 2),
-                (b.x + custom_parameter.box_width / 2, b.y - custom_parameter.box_height / 2),
-            ]
-            self._draw_colored_polygon(
-                self.surf, box, custom_parameter.box_color, zoom, translation, angle
-            )
-        # draw destination
-        dest = [self.destionation, (self.destionation[0] + 1, self.destionation[1]),\
-                (self.destionation[0] + 1, self.destionation[1]+1),(self.destionation[0], self.destionation[1]+1)]
-        self._draw_colored_polygon(
-            self.surf, dest, custom_parameter.dest_color, zoom, translation, angle
-        )
-        '''
 
-    '''
-    def create_box(self):
-        if(self.t > self.next_create_time):
-            self.next_create_time = np.random.normal(custom_parameter.create_time, custom_parameter.sigma) + self.t
-            x = np.random.randint(0, self.width)
-            y = np.random.randint(0, self.height)
-            while self.box_matrix[x][y] != 0  or (x,y) == self.destionation: 
-                x = np.random.randint(0, self.width)
-                y = np.random.randint(0, self.height)
-            self.box_list.append(box(self, x, y, custom_parameter.box_width, custom_parameter.box_height, 
-                                     np.random.normal(custom_parameter.expire_time, custom_parameter.sigma)))
-    
-    
-    def calculate_reward(self):
-        step_reward = custom_parameter.step_reward # small neg reward for each step
-        for b in self.box_list:
-            step_reward += b.reward(self.car) # add reward for each box
-        if self.car.carry is not None: # add reward for reaching destination
-            distance = euclidean((self.car.hull.position), (self.destionation))
-            if distance < custom_parameter.crash_distance and math.sqrt(self.car.hull.linearVelocity.lengthSquared) < custom_parameter.crash_speed:
-                self.car.carry.destroy()
-                self.car.carry = None
-                step_reward += custom_parameter.reach_reward
-                logger.log("Reach")
+    # We generate all the information we need to form the problem at the beginning.
+    # So that we only generate world once and cache it to enhance performance and make the 
+    # code more trackable.
+    # To make the environment stochastic, reset the environment after a small batch of training.
+    def _generate_world(self):
         
-        return step_reward  
-    
-       
-    def get_obs(self):
-        return {"box": self.box_matrix,"position": self.car.hull.position, "velocity": self.car.hull.linearVelocity, 
-                "carry": self.car.carry.expire_time if self.car.carry is not None else -1,"destination": self.destionation, "time": self.t}
+        # Create world gen.
+        self.world_gen = []
 
-    
-        '''
+        # Generate truck metadata, with random angle and x, y positions, no emerge/vanish time.
+        self.world_gen.append([
+            random.randint(constants.BLEED, constants.WIDTH - constants.BLEED),
+            random.randint(constants.BLEED, constants.HEIGHT - constants.BLEED),
+            random.uniform(0, 2 * constants.PI), 0, 0
+                             ])
+        
+        # Create the truck at random positions.
+        self.truck = truck(self.world, self.world_gen[0][2], self.world_gen[0][0], self.world_gen[0][1])
 
-    
+        # Create full observation.
+        self.full_observation = copy(self.world_gen)
 
+        # Create last observation, since we need to give reward based on state transfer.
+        self.last_observation = copy(self.world_gen)
 
-    
+    # Update full observation after state change.
+    def _full_observation_step(self):
+
+        # Update truck state observation.
+        self.full_observation[0] = [self.truck.hull.position[0], self.truck.hull.position[1], self.truck.hull.angle, 0, 0]
+
+    # Calculate reward after each step.
+    def _calculate_reward_step(self):
+
+        accident = False
+        # Reward for truck trajectory only
+        # Firstly, check whether accident occurs at boarder
+        # The boarder is not hard. it is a habor, truck get into water if it go across boarder.
+        x_out_of_bound = self.full_observation[0][0] < constants.REACH_DISTANCE or self.full_observation[0][0] > constants.WIDTH - constants.REACH_DISTANCE
+        y_out_of_bound = self.full_observation[0][1] < constants.REACH_DISTANCE or self.full_observation[0][1] > constants.HEIGHT - constants.REACH_DISTANCE
+        accident |= x_out_of_bound or y_out_of_bound
+
+        # Next, reward the truck if generalized velocity is below low threshold.
+        if abs(self.last_observation[0][0] - self.full_observation[0][0]) < constants.THRESHOLD \
+        and abs(self.last_observation[0][1] - self.full_observation[0][1]) < constants.THRESHOLD \
+        and abs(self.last_observation[0][2] - self.full_observation[0][2]) < constants.THRESHOLD:
+            self.reward += constants.STOP_REWARD / self.metadata['FPS']
+        
+        # Refresh the last observation
+        del self.last_observation
+        self.last_observation = copy(self.full_observation)
+        
+        # If there is an accident, truncate this episode directly.
+        if accident:
+            self.reward -= 50
+            self.truncated |= True
+            

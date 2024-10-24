@@ -2,6 +2,8 @@ from gymnasium.envs.box2d.car_dynamics import Car
 import numpy as np
 from typing import Union
 
+from cargo import cargo
+
 class truck(Car):
 
     def __init__(self, world, init_angle, init_x, init_y):
@@ -11,23 +13,24 @@ class truck(Car):
         # With capacity of one cargo, intitially empty.
         self.carried = []
 
-    """
-    def step(self, action:Union[np.ndarray, int]):
-        pass
-        # Take the action if the pass in is in action space, or do nothing if no action specified.
-        '''
+    def step(self, action:np.ndarray, timedelta):
+
+        # Do the specified actions
         if action is not None:
-            self.car.steer(-action[0][0])
-            self.car.gas(action[0][1])
-            self.car.brake(action[0][2])
-        '''
+            self.steer(-action[0])
+            self.gas(action[1])
+            self.brake(action[2])
+
+        # Update truck state
+        super().step(timedelta)
+
+    def draw(self, surface, zoom, translation, angle, draw_particles=True):
+
+        # Draw the truck itself
+        super().draw(surface, zoom, translation, angle, draw_particles)
+
+        # TODO: Draw the cargo if it is loaded
+
+    def carry(self, cargo):
+
         
-
-        # TODO: pick up cargo when action[1][0] == 1
-
-    def render(self):
-        pass
-
-    def carry(self):
-        pass
-    """
