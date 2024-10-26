@@ -1,28 +1,9 @@
-'''
-import math
-from typing import Optional, Union
-import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
-from gymnasium.envs.box2d.car_dynamics import Car
-from gymnasium.error import DependencyNotInstalled, InvalidAction
-from gymnasium.utils import EzPickle
-from parameter import custom_parameter
-from datetime import datetime, timedelta
+import numpy as np
 import Box2D
-from Box2D.b2 import contactListener, fixtureDef, polygonShape
 import pygame
-from pygame import gfxdraw
-import random
 from scipy.spatial.distance import euclidean
-'''
-
-import gymnasium as gym
-from gymnasium import spaces
-import numpy as np
-import Box2D
-import pygame
-
 from typing import Optional, Union, Any
 import random
 from datetime import datetime
@@ -33,6 +14,7 @@ from cargo import cargo
 from destination import destination
 from utils import utils
 from copy import copy
+from logger import logger
 
 '''
 To avoid misleading wording and allow readability, some wordings in this project are changed.
@@ -72,6 +54,7 @@ class cargo_moving_truck_env(gym.Env):
             # the position and orientation, appear time and expiration of boxes, and the position and orientation of destination.
             # Map size is defined in 'constants.WIDTH' and 'constants.HEIGHT'
             # The first index is for the truck, the second is for the destination, and the rest are for cargoes.
+            # The forth data of the truck array is for not loaded/loaded state, the fifth one keep track of cargo expiration time.
             # Therefore, the data structure is defined by the following:
             self.observation_space = spaces.Box(
                 # lower bound 0 for positions because we need to represent the cargo carried on truck
@@ -80,7 +63,7 @@ class cargo_moving_truck_env(gym.Env):
                 # destination with no create time and expire time.
                 low = np.array([0.0, 0.0, 0.0, 0.0, 0.0]), 
                 high = np.array([constants.WIDTH - constants.BLEED, constants.HEIGHT - constants.BLEED, 
-                                 2 * constants.PI, constants.CREATE_TIME_MAX, constants.EXPIRE_TIME_MAX]), 
+                                 2 * constants.PI, constants.MAX_CREATE_TIME, constants.MAX_EXPIRE_TIME]), 
                 shape = (5, ), dtype = np.float32
             )
         else:
@@ -157,11 +140,13 @@ class cargo_moving_truck_env(gym.Env):
             pygame.init()
             pygame.display.init()
             self.screen = pygame.display.set_mode((constants.VIDEO_WIDTH, constants.VIDEO_HEIGHT))
-            self.render()
+            return (self.render(), {"reward": self.reward})
 
+        # Put world gen into additional information if fully observable space specified.
+        # Also, put reward as additional information.
         if self.render_mode == 'rgb_array':
             if constants.FULLY_OBSERVABLE:
-                return (self.full_observation, {})
+                return (self.full_observation, {"world_gen": self.world_gen})
             else:
                 return (self.render(), {})
             
@@ -207,17 +192,21 @@ class cargo_moving_truck_env(gym.Env):
         trans = pygame.math.Vector2((scroll_x, scroll_y)).rotate_rad(angle)
         trans = (constants.VIDEO_WIDTH / 2 + trans[0], constants.VIDEO_HEIGHT / 4 + trans[1])
 
+        # Render entities, the highest layer priority last.
         # Render the 'habor' in question.
         self._render_field(trans, angle)
 
+        # Render the destination
+        self.destination.draw(self.surface, constants.ZOOM, trans, angle)
+
+        # Render cargoes
+        for cargo in self.cargoes:
+            if cargo.is_on_ground():
+                cargo.draw(self.surface, constants.ZOOM, trans, angle)
+
         # Render our agent, the truck.
-        self.truck.draw(
-            self.surface,
-            constants.ZOOM,
-            trans,
-            angle,
-            mode not in ["state_pixels_list", "state_pixels"],
-        )
+        self.truck.draw(self.surface, constants.ZOOM, trans, angle,
+                        mode not in ["state_pixels_list", "state_pixels"])
         
         self.surface = pygame.transform.flip(self.surface, False, True)
         if mode == "human":
@@ -272,22 +261,46 @@ class cargo_moving_truck_env(gym.Env):
         # Step everything in the environment by time.
         time_delta = 1.0 / self.metadata['FPS']
         self.t += time_delta
-        self.world.Step(time_delta, 6 * 30, 2 * 30)
+
+        # According to documentation, setting both precision to 10 is sufficient for simulation.
+        self.world.Step(time_delta, constants.VELOCITY_PRECISION, constants.POSITION_PRECISION)
+
+        # Step the truck with given action
         self.truck.step(action, time_delta)
 
-        # Next, step the God observation.
-        self._full_observation_step()
+        # Step all the cargoes, emerge, vanish or become loaded at right times
+        for cargo in self.cargoes:
+            cargo.step(time_delta)
 
-        # Finally, calculate reward for this step.
-        self._calculate_reward_step()
+        # Step the destination: no action required
+        self.destination.step(time_delta)
+
+        # Update full observation
+        self.full_observation = [self.truck.collect_observation(), self.destination.collect_observation()] + \
+            [cargo.collect_observation() for cargo in self.cargoes if cargo.is_on_ground()]
+
+        # Compute interactions of the entities in the state
+        # e.g. Is there a crash? Is the truck carrying cargo?
+        status, expire_count = self._status_step()
+
+        # Based on status, calculate reward for this step.
+        self._calculate_reward_step(status, expire_count)
+
+        # Terminate episode if global time limit is reached
+        if self.t >= constants.MAX_TERMINATION:
+            self.terminated = True
+
+        # Refresh the last observation
+        del self.last_observation
+        self.last_observation = copy(self.full_observation)
 
         # Render to window directly if human manipulation.
         if self.render_mode == 'human':
             self.render()
 
-        # TODO: Not sure yet what to put into 'info' yet.
+        # Put world gen into additional information if fully observable space specified.
         if constants.FULLY_OBSERVABLE:
-            return self.full_observation, self.reward, self.terminated, self.truncated, {}
+            return self.full_observation, self.reward, self.terminated, self.truncated, {"world_gen": self.world_gen}
         else:
             return self.render(), self.reward, self.terminated, self.truncated, {}
 
@@ -307,14 +320,68 @@ class cargo_moving_truck_env(gym.Env):
             pygame.display.quit()
             pygame.quit()
 
-        # Release memory used by 'self.full_observation' and 'self.last_observation', prevent memory leaks.
-        del self.full_observation
+        del self.truck
+        del self.destination
         del self.last_observation
+        for cargo in self.cargoes:
+            del cargo
 
         # TODO: Delete all the rest objects, arraylists here.
 
     # Some of the followings are helper functions.
     # I might think them private, does not make sense for others to call them.
+
+    # We generate all the information we need to form the problem at the beginning.
+    # So that we only generate world once and cache it to enhance performance and make the 
+    # code more trackable.
+    # To make the environment stochastic, reset the environment after a small batch of training.
+    def _generate_world(self):
+        
+        # Create world gen.
+        self.world_gen = []
+
+        # Generate truck metadata, with x, y positions and random angle, no emerge/vanish time.
+        self.world_gen.append([
+            random.uniform(constants.BLEED, constants.WIDTH - constants.BLEED),
+            random.uniform(constants.BLEED, constants.HEIGHT - constants.BLEED),
+            random.uniform(0, 2 * constants.PI), 0, 0
+        ])
+
+        # Generate destination metadata, with x, y positions and random angle, no emerge/vanish time.
+        self.world_gen.append([
+            random.uniform(constants.BLEED, constants.WIDTH - constants.BLEED),
+            random.uniform(constants.BLEED, constants.HEIGHT - constants.BLEED),
+            random.uniform(0, 2 * constants.PI), 0, 0
+        ])
+
+        # Pre-create some cargo, also no physics for cargo, not interesting for our problem.
+        self.num_of_cargoes = random.randint(constants.MIN_NUM_CARGOES, constants.MAX_NUM_CARGOES)
+
+        # Generate cargo metadata, with x, y positions and random angle, and emerge/vanish time.
+        for _ in range(0, self.num_of_cargoes):
+            self.world_gen.append([
+                random.uniform(constants.BLEED, constants.WIDTH - constants.BLEED),
+                random.uniform(constants.BLEED, constants.HEIGHT - constants.BLEED),
+                random.uniform(0, 2 * constants.PI),
+                random.uniform(constants.MIN_CREATE_TIME, constants.MAX_CREATE_TIME),
+                random.uniform(constants.MIN_EXPIRE_TIME, constants.MAX_EXPIRE_TIME)
+            ])
+
+        # Create the truck at random positions.
+        self.truck = truck(self.world, self.world_gen[0])
+        
+        # Create the destination, no need "self.world" since it has no physics.
+        self.destination = destination(self.world_gen[1])
+
+        # Pre-create the cargoes, this is somewhat anti-intuitive but convenient for parallizing entity workflow.
+        self.cargoes = [cargo(metadata) for metadata in self.world_gen[2:]]
+
+        # Create full observation data by collecting all the object observations
+        self.full_observation = [self.truck.collect_observation(), self.destination.collect_observation()] + \
+            [cargo.collect_observation() for cargo in self.cargoes if cargo.is_on_ground()]
+
+        # Create last observation buffer, since we need to give reward based on state transfer.
+        self.last_observation = copy(self.full_observation)
 
     # Enable rgb_array rendering.
     # Copy from gymnasium.envs.box2d.car_racing.
@@ -326,6 +393,7 @@ class cargo_moving_truck_env(gym.Env):
 
     # Render the 'habor' in question.
     def _render_field(self, translation, angle):
+        
         # Draw background as a dark-green surface.
         bounds = 96
         field = [
@@ -334,6 +402,7 @@ class cargo_moving_truck_env(gym.Env):
             (0, 0),
             (0, bounds),
         ]
+        
         utils.draw_colored_polygon(
             self.surface, field, constants.BG_COLOR, constants.ZOOM, translation, angle, clip = False
         )
@@ -351,65 +420,114 @@ class cargo_moving_truck_env(gym.Env):
                         (grass_dim * x + grass_dim, grass_dim * y + grass_dim),
                     ]
                 )
+                
         for poly in grass:
             utils.draw_colored_polygon(
                 self.surface, poly, constants.GRASS_COLOR, constants.ZOOM, translation, angle
             )
 
-    # We generate all the information we need to form the problem at the beginning.
-    # So that we only generate world once and cache it to enhance performance and make the 
-    # code more trackable.
-    # To make the environment stochastic, reset the environment after a small batch of training.
-    def _generate_world(self):
+    # Check status of everything for calculating reward.
+    # 0 for accident truncation, 1 for empty truck, 2 for loading cargo, 3 for loaded truck, 
+    # 4 for unloading at destination
+    # The second interger counts number of boxes expired
+    def _status_step(self) -> (int, int):
+
+        vanish = 0
+
+        # Get truck metadata through full observation as updated by truck above
+        truck_position = (self.full_observation[0][0], self.full_observation[0][1])
+        truck_load_logit = self.full_observation[0][3]
         
-        # Create world gen.
-        self.world_gen = []
-
-        # Generate truck metadata, with random angle and x, y positions, no emerge/vanish time.
-        self.world_gen.append([
-            random.randint(constants.BLEED, constants.WIDTH - constants.BLEED),
-            random.randint(constants.BLEED, constants.HEIGHT - constants.BLEED),
-            random.uniform(0, 2 * constants.PI), 0, 0
-                             ])
+        # Check whether accident occurs at boarder
+        # The boarder is not hard. it is a habor, truck get into water if it go across boarder.
+        x_out_of_bound = truck_position[0] < constants.REACH_DISTANCE or \
+            truck_position[0] > constants.WIDTH - constants.REACH_DISTANCE
+        y_out_of_bound = truck_position[1] < constants.REACH_DISTANCE or \
+            truck_position[1] > constants.HEIGHT - constants.REACH_DISTANCE
         
-        # Create the truck at random positions.
-        self.truck = truck(self.world, self.world_gen[0][2], self.world_gen[0][0], self.world_gen[0][1])
+        # Check every cargo on the ground
+        for cargo in self.cargoes:
+            if cargo.is_on_ground:
 
-        # Create full observation.
-        self.full_observation = copy(self.world_gen)
+                # If the cargo is expired, vanish it and continue loop
+                if cargo.get_expiration_time() < constants.EQUIVALANCE_THRESHOLD:
+                    self.cargoes.remove(cargo)
+                    vanish += 1
 
-        # Create last observation, since we need to give reward based on state transfer.
-        self.last_observation = copy(self.world_gen)
+                # Compute distance between cargo and truck
+                distance_to_cargo = euclidean(truck_position, 
+                                     (cargo.collect_observation()[0], cargo.collect_observation()[1]))
 
-    # Update full observation after state change.
-    def _full_observation_step(self):
+                # If truck and cargo are close enough
+                if distance_to_cargo < constants.REACH_DISTANCE: 
+    
+                    # If truck is empty and close to cargo at low velocity
+                    if (math.sqrt(self.truck.hull.linearVelocity.lengthSquared) < constants.STOP_THRESHOLD \
+                        and truck_load_logit == 0):
+    
+                        # Load cargo
+                        self.truck.carry(cargo)
+                        logger.log("Load")
+                        return (2, vanish)
+                        
+                    # If cargo is reached at large velocity, or if the truck is already loaded, we consider these as crashes.
+                    else:
+                        return (0, vanish)
 
-        # Update truck state observation.
-        self.full_observation[0] = [self.truck.hull.position[0], self.truck.hull.position[1], self.truck.hull.angle, 0, 0]
+        # Report accident if truck gets out of bound after cargo vanish calculation
+        if x_out_of_bound or y_out_of_bound:
+            return (0, vanish)
+
+        # Destination unload check
+        destination_position = (self.full_observation[1][0], self.full_observation[1][1])
+
+        # Check for loaded truck reach destination
+        if truck_load_logit == 1:
+
+            # Compute distance between destination and truck
+            distance_to_destination = euclidean(truck_position, destination_position)
+
+            # If truck and cargo are close enough
+            if distance_to_destination < constants.REACH_DISTANCE:
+
+                # No collision for destination, just unload at low velocities
+                if math.sqrt(self.truck.hull.linearVelocity.lengthSquared) < constants.STOP_THRESHOLD:
+                    self.truck.unload()
+                    return (4, vanish)
+
+            else:
+                return (3, vanish)
+
+        return (1, vanish)
 
     # Calculate reward after each step.
-    def _calculate_reward_step(self):
+    # Give reward to status 4, penalty for status 0.
+    # Also, give reward for saving energy, etc.
+    def _calculate_reward_step(self, status, expire_count):
 
-        accident = False
-        # Reward for truck trajectory only
-        # Firstly, check whether accident occurs at boarder
-        # The boarder is not hard. it is a habor, truck get into water if it go across boarder.
-        x_out_of_bound = self.full_observation[0][0] < constants.REACH_DISTANCE or self.full_observation[0][0] > constants.WIDTH - constants.REACH_DISTANCE
-        y_out_of_bound = self.full_observation[0][1] < constants.REACH_DISTANCE or self.full_observation[0][1] > constants.HEIGHT - constants.REACH_DISTANCE
-        accident |= x_out_of_bound or y_out_of_bound
-
-        # Next, reward the truck if generalized velocity is below low threshold.
-        if abs(self.last_observation[0][0] - self.full_observation[0][0]) < constants.THRESHOLD \
-        and abs(self.last_observation[0][1] - self.full_observation[0][1]) < constants.THRESHOLD \
-        and abs(self.last_observation[0][2] - self.full_observation[0][2]) < constants.THRESHOLD:
+        # Reward the truck if generalized velocity is below low threshold.
+        if abs(self.last_observation[0][0] - self.full_observation[0][0]) < constants.STOP_THRESHOLD \
+        and abs(self.last_observation[0][1] - self.full_observation[0][1]) < constants.STOP_THRESHOLD \
+        and abs(self.last_observation[0][2] - self.full_observation[0][2]) < constants.STOP_THRESHOLD:
             self.reward += constants.STOP_REWARD / self.metadata['FPS']
-        
-        # Refresh the last observation
-        del self.last_observation
-        self.last_observation = copy(self.full_observation)
+
+        # Penalty for expired cargo
+        self.reward += constants.EXPIRE_REWARD * expire_count
+
+        # Reward for sending cargo to destination
+        # Penalize for sending expired cargo though
+        if status == 4:
+            self.reward += constants.CARGO_REACH_DEST_REWARD
+            if self.full_observation[0][4] < constants.EQUIVALANCE_THRESHOLD:
+                self.reward += constants.EXPIRE_REWARD
+
+        # Continuous penalty for expired cargo on truck
+        if self.full_observation[0][3] == 1 and \
+        self.full_observation[0][4] < constants.EQUIVALANCE_THRESHOLD:
+            self.reward += constants.EXPIRE_REWARD_CONTINUOUS / self.metadata['FPS']
         
         # If there is an accident, truncate this episode directly.
-        if accident:
-            self.reward -= 50
+        if status == 0:
+            self.reward += constants.CRASH_REWARD
             self.truncated |= True
-            
+            logger.log("Accident")
