@@ -4,18 +4,12 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.box2d.car_dynamics import Car
-from gymnasium.error import DependencyNotInstalled, InvalidAction
-from gymnasium.utils import EzPickle
 from parameter import custom_parameter
-from datetime import datetime, timedelta
 import Box2D
-from Box2D.b2 import contactListener, fixtureDef, polygonShape
 import pygame
 from pygame import gfxdraw
 import random
 from scipy.spatial.distance import euclidean
-import time
-import cv2
 
 class logger:
     def __init__(self):
@@ -137,8 +131,9 @@ class CustomCarRacing(gym.Env):
         return step_reward  
        
     def get_obs(self):
-        return {"state":self.state,"box": self.box_matrix,"position": self.car.hull.position, "velocity": self.car.hull.linearVelocity,"angle": self.car.hull.angle,
-                "carry": self.car.carry.expire_time if self.car.carry is not None else -1,"destination": self.destionation, "time": self.t}
+        vector = np.array([self.car.hull.position[0], self.car.hull.position[1], self.car.hull.linearVelocity[0], self.car.hull.linearVelocity[1],
+                           self.car.hull.angle, self.car.carry.expire_time if self.car.carry is not None else -1, self.destionation[0], self.destionation[1],self.t])
+        return {"state":self.state,"box": self.box_matrix,"vector":vector}
 
     def reset(self):
         random.seed(custom_parameter.random_seed)

@@ -26,9 +26,29 @@ class custom_parameter:
     zoom = 2.7
     max_shape_dim = 381
 
-    step_reward = -0.1 #reward for each step
-    crash_reward = -10 #reward for crash
+    step_reward = -0.1  #reward for each step
+    crash_reward = -10  #reward for crash
     pickup_reward = 100 #reward for pickup each box
-    reach_reward = 100 #reward for reach destination
+    reach_reward = 100  #reward for reach destination
     expire_reward = -10 #reward for expire box
     expire_reward_continuous = -0.01 #reward for expire box each frame
+
+class training_parameter:
+    channel = 3
+    net_size = 96
+    matrix_size = custom_parameter.width * custom_parameter.height
+    lr = 1e-5
+    opti_eps=1e-8
+    weight_decay=0
+    max_step = 100000
+    sync_windows = 32
+    gamma = 0.95
+    lam = 0.95
+    clip_range = 0.2
+    entropy_coef = 0.01
+    value_coef = 0.5
+    max_grad_norm = 20
+    num_envs = 1
+    num_epochs = 8
+    batch_size = 16
+    save_interval = 5120
