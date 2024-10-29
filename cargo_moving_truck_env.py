@@ -298,9 +298,12 @@ class cargo_moving_truck_env(gym.Env):
         if self.render_mode == 'human':
             self.render()
 
+        done = self.terminated or self.truncated
+
         # Put world gen into additional information if fully observable space specified.
         if constants.FULLY_OBSERVABLE:
             return self.full_observation, self.reward, self.terminated, self.truncated, {"world_gen": self.world_gen}
+        #return includes: 
         else:
             return self.render(), self.reward, self.terminated, self.truncated, {}
 

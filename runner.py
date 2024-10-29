@@ -26,10 +26,15 @@ class Runner:
         db_hidden_state = []
         db_done = []
         with torch.no_grad():
-            while step < training_parameter.sync_windows and not self.env.done:
+            while step < training_parameter.sync_windows and not (self.env.terminated or self.env.truncated):
+                #这里还要匹配
+                db_state.append(observation[0])
+                db_matrix.append(observation[1])
+                db_vector.append(observation[2])
+                '''
                 db_state.append(observation['state'])
                 db_matrix.append(observation['box'])
-                db_vector.append(observation['vector'])
+                db_vector.append(observation['vector'])'''
                 policy,value,hidden_state = self.model.step(observation['state'],observation['box'],self['vector'],hidden_state)
                 observation, reward, done, _ = self.env.step(policy)
                 db_policy.append(policy)
