@@ -58,46 +58,99 @@ dependencies:
   - zeromq=4.3.4=h9c3ff4c_1
   - zlib=1.3.1=h4ab18f5_1
   - pip:
+      - absl-py==2.1.0
+      - aiosignal==1.3.1
+      - astor==0.8.1
+      - atari-py==0.2.9
+      - attrs==24.2.0
       - box2d-py==2.3.5
       - charset-normalizer==3.3.2
-      - cloudpickle==2.2.1
+      - click==8.1.7
+      - cloudpickle==1.2.1
       - cycler==0.11.0
       - decorator==4.4.2
+      - docker-pycreds==0.4.0
+      - exceptiongroup==1.2.2
       - farama-notifications==0.0.4
+      - filelock==3.12.2
       - fonttools==4.38.0
-      - gym==0.26.2
+      - frozenlist==1.3.3
+      - future==1.0.0
+      - gast==0.2.2
+      - gitdb==4.0.11
+      - gitpython==3.1.43
+      - google-pasta==0.2.0
+      - grpcio==1.62.3
+      - gym==0.15.7
       - gym-notices==0.0.8
       - gymnasium==0.28.1
+      - h5py==2.10.0
       - idna==3.10
       - imageio==2.31.2
       - imageio-ffmpeg==0.5.1
       - importlib-metadata==6.7.0
+      - importlib-resources==5.12.0
+      - iniconfig==2.0.0
       - jax-jumpy==1.0.0
+      - joblib==1.3.2
+      - jsonschema==4.17.3
+      - keras-applications==1.0.8
+      - keras-preprocessing==1.1.2
       - kiwisolver==1.4.5
-      - matplotlib==3.5.3
+      - markdown==3.4.4
+      - markupsafe==2.1.5
+      - matplotlib==3.1.1
       - moviepy==1.0.3
+      - mpi4py==4.0.1
+      - msgpack==1.0.5
       - numpy==1.21.6
       - nvidia-cublas-cu11==11.10.3.66
       - nvidia-cuda-nvrtc-cu11==11.7.99
       - nvidia-cuda-runtime-cu11==11.7.99
       - nvidia-cudnn-cu11==8.5.0.96
       - opencv-python==4.10.0.84
+      - opt-einsum==3.3.0
       - panda-gym==3.0.7
       - pandas==1.3.5
       - pillow==9.5.0
+      - pkgutil-resolve-name==1.3.10
+      - platformdirs==4.0.0
+      - pluggy==1.2.0
       - proglog==0.1.10
+      - protobuf==4.24.4
       - pybullet==3.2.6
       - pygame==2.1.3
+      - pyglet==1.5.0
       - pyparsing==3.1.4
+      - pyrsistent==0.19.3
+      - pytest==7.4.4
+      - python-graphviz==0.20.1
       - pytz==2024.2
       - pyvirtualdisplay==3.0
+      - pyyaml==6.0.1
+      - ray==2.7.2
       - requests==2.31.0
       - scipy==1.7.3
+      - seaborn==0.8.1
+      - sentry-sdk==2.18.0
+      - setproctitle==1.3.3
+      - smmap==5.0.1
       - stable-baselines3==2.0.0
       - swig==4.2.1
+      - tensorboard==1.15.0
+      - tensorflow==1.15.5
+      - tensorflow-estimator==1.15.1
+      - termcolor==2.3.0
+      - tomli==2.0.1
       - torch==1.13.1
+      - torchaudio==0.13.1
+      - torchvision==0.14.1
+      - torchviz==0.0.2
       - tqdm==4.66.5
       - typing-extensions==4.7.1
       - urllib3==2.0.7
+      - wandb==0.18.6
+      - werkzeug==2.2.3
+      - wrapt==1.16.0
       - zipp==3.15.0
 prefix: /home/ljh/anaconda3/envs/me5418

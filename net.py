@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.cuda.amp.autocast_mode import autocast
-from parameter import training_parameter
+from parameter import *
+import numpy as np
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1):
@@ -19,7 +20,6 @@ class ResidualBlock(nn.Module):
                 nn.BatchNorm2d(out_channels)
             )
             
-    @autocast()
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
@@ -30,17 +30,13 @@ class ResidualBlock(nn.Module):
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.downsample = nn.Conv2d(training_parameter.channel,training_parameter.net_size, kernel_size=1, stride=1, padding=1)
         self.layer1 = self.make_layer(ResidualBlock, training_parameter.net_size, training_parameter.net_size, 2)
         self.layer2 = self.make_layer(ResidualBlock, training_parameter.net_size, training_parameter.net_size, 2)
-        self.lstm = nn.LSTM(input_size=training_parameter.net_size, hidden_size=training_parameter.net_size, num_layers=1, batch_first=True)
-        self.fc1 = nn.Linear(training_parameter.vector_size, training_parameter.net_size)
-        self.fc2 = nn.Linear(training_parameter.net_size, training_parameter.net_size)
-        self.fc3 = nn.Linear(training_parameter.matrix_size, training_parameter.net_size)
+        self.lstm = nn.LSTMCell(input_size=training_parameter.net_size, hidden_size=training_parameter.net_size)
+        self.fc1 = nn.Linear(in_features=7*5, out_features=training_parameter.net_size)
+        self.fc2 = nn.Linear(in_features=training_parameter.net_size, out_features=training_parameter.net_size)
         self.policy_output = nn.Linear(training_parameter.net_size, 3)
         self.value_output = nn.Linear(training_parameter.net_size, 1)
-        self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.tanh = nn.Tanh()
         
     def make_layer(self, block, in_channels, out_channels, blocks, stride=1):
         layers = []
@@ -49,17 +45,17 @@ class Net(nn.Module):
             layers.append(block(out_channels, out_channels))
         return nn.Sequential(*layers)
     
-    @autocast()
     def forward(self, x, hidden_state):
-        for cell in x:
-            cell = np.pad(cell, (0, 7 - len(seq)), mode='constant', constant_values=0)
-        x = np.flatten(x)
-        x  = x.pad(x, (0, training_parameter.net_size - len(x)), mode='constant', constant_values=0)
-        x = self.layer1(x)
-        x = self.maxpool(x)
-        x, memory = self.lstm(x, hidden_state)
-        hidden_state = (x,memory)
+        x = x.view(-1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x, lstm_memory = self.lstm(x, hidden_state)
+        hidden_state = (x, lstm_memory)
         policy = self.policy_output(x)
         value = self.value_output(x)
-        policy = self.tanh(policy)
+        policy[0]=torch.tanh(policy[0])
+        policy[1]=torch.sigmoid(policy[1])
+        policy[2]=torch.sigmoid(policy[2])
+        policy[1] =(policy[1]>0.5).float()
+        policy[2] =(policy[2]>0.5).float()
         return policy, value, hidden_state

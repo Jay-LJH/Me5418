@@ -8,8 +8,8 @@ class custom_parameter:
     video_height = 800 #video height in pygame
     random_seed = 42
     create_time =  5 #create a new box average each 10 seconds 
-    expire_time = 10 #expire a box after average 30 seconds
-    destory_time = 2 #destory a box after expired 20 seconds
+    expire_time = 10000 #expire a box after average 30 seconds
+    destory_time = 0 #destory a box after expired 20 seconds
     sigma = 1 #sigma for normal distribution
     box_width = 2   #box width
     box_height = 2  #box height
@@ -34,6 +34,7 @@ class custom_parameter:
     expire_reward_continuous = -0.01 #reward for expire box each frame
 
 class training_parameter:
+    wandb = True
     channel = 3
     net_size = 96
     matrix_size = custom_parameter.width * custom_parameter.height
@@ -52,3 +53,5 @@ class training_parameter:
     num_epochs = 8
     batch_size = 16
     save_interval = 5120
+    num_CPU = 1
+    num_GPU = 1

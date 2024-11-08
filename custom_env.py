@@ -10,6 +10,10 @@ import pygame
 from pygame import gfxdraw
 import random
 from scipy.spatial.distance import euclidean
+from model import Model
+import sys
+import torch
+import time
 
 class logger:
     def __init__(self):
@@ -69,7 +73,8 @@ class box:
                 car.carry = None
             logger.log("Destroy box at ({},{},destroy time: {})".format(self.x, self.y,self.env.t))
         return reward
-
+    def get_obs(self):
+        return [self.x, self.y, self.carry,self.expire_time]
     def destroy_on_map(self):
         self.env.box_matrix[self.x][self.y] = 0
         # self.env.world.DestroyBody(self.body)
@@ -77,15 +82,6 @@ class box:
     def destroy(self):
         self.env.box_list.remove(self)
 
-'''
-To Do:
-init function
-reset function
-step function
-create box
-calculate reward
-render environment for human & imitation learning
-'''
 
 class CustomCarRacing(gym.Env):
     def __init__(self,render_mode='human'):
@@ -114,6 +110,8 @@ class CustomCarRacing(gym.Env):
         self.state = self.render('rgb_array')
         if self.render_mode == 'human':
             self.render()
+        if self.t > 60: # if the car run for 60 seconds, end the game
+            self.done = True
         return self.get_obs(), self.reward, self.done
 
     def calculate_reward(self):
@@ -127,14 +125,34 @@ class CustomCarRacing(gym.Env):
                 self.car.carry = None
                 step_reward += custom_parameter.reach_reward
                 logger.log("Reach")
-        
+                
+        # if the car get out of the map, reset the car and add negative reward
+        if self.car.hull.position[0] < 0 or self.car.hull.position[0] > self.width \
+            or self.car.hull.position[1] < 0 or self.car.hull.position[1] > self.height:
+            self.car.hull.position = (self.width/2, self.height/2)
+            self.car.hull.linearVelocity = (0, 0)
+            self.car.hull.angle = 0
+            step_reward += custom_parameter.crash_reward
+            logger.log("Out of map")
         return step_reward  
-       
+    
+    def get_car_obs(self):
+        return [self.car.hull.position[0], self.car.hull.position[1], self.car.hull.linearVelocity[0], \
+            self.car.hull.linearVelocity[1],self.car.hull.angle]
+    def get_dest_obs(self):
+        return [self.destionation[0], self.destionation[1]]
+    
     def get_obs(self):
-        vector = np.array([self.car.hull.position[0], self.car.hull.position[1], self.car.hull.linearVelocity[0], self.car.hull.linearVelocity[1],
-                           self.car.hull.angle, self.car.carry.expire_time if self.car.carry is not None else -1, self.destionation[0], self.destionation[1],self.t])
-        return {"state":self.state,"box": self.box_matrix,"vector":vector}
-
+        obs =  [self.get_car_obs(),self.get_dest_obs()]
+        box_obs = [self.box_list[b].get_obs() for b in range(min(5,len(self.box_list)))]
+        for b in box_obs:
+            obs.append(b)
+        target_obs = np.zeros((7,5),dtype=np.float32)
+        for i in range(len(obs)):
+            for j in range(len(obs[i])):
+                target_obs[i][j] = obs[i][j]
+        return target_obs
+                   
     def reset(self):
         random.seed(custom_parameter.random_seed)
         self.world = Box2D.b2World((0, 0)) #（0，0） gravity vector 
@@ -152,6 +170,7 @@ class CustomCarRacing(gym.Env):
         self.clock = None
         if self.render_mode == 'human':
             self.render()
+        return self.get_obs()
         
 
     def create_box(self):
@@ -315,22 +334,30 @@ if __name__ == "__main__":
 
     env = CustomCarRacing(render_mode="human")
     env.reset()
+    if len(sys.argv) > 1:
+        model = Model()
+        net_dict = torch.load(sys.argv[1])
+        model.net.load_state_dict(net_dict['model'])
+    else:
+        model = None
     quit = False
     while not quit:
         env.reset()
+        hidden_state = None
         total_reward = 0.0
         steps = 0
         restart = False
         s, r, terminated= env.step(a)
         while True:
-            register_input()
+            if model is not None:
+                a,_,hidden_state = model.step(s, hidden_state)
+            else:
+                register_input()
             s, r, terminated= env.step(a)
             total_reward += r
             if steps % 200 == 0 or terminated :
                 print("\naction " + str([f"{x:+0.2f}" for x in a]))
                 print(f"step {steps} total_reward {total_reward:+0.2f} at time {env.t}")
-                positions = [(i, j) for i, row in enumerate(s["box"]) for j, value in enumerate(row) if value != 0]
-                print(f"boxes: {positions}")
             steps += 1
             if terminated or restart or quit:
                 break
