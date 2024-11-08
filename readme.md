@@ -44,3 +44,7 @@ define model.py that convert observation in tensor and do forward & backward pro
 ## net.py
 
 define the structure of the neural network.
+
+## parameter.py
+
+define the hyper parameter in environment setting and training
