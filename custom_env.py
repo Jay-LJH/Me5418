@@ -38,9 +38,19 @@ class box:
         # )
         self.env.box_matrix[x][y] = expire_time
         self.collision_enter = False
+        self.pre_distance = 1e9
     def reward(self,car):
         reward = 0  
         distance = euclidean((car.hull.position), (self.x, self.y))
+        
+        # add reward for getting closer to the box
+        if distance < self.pre_distance:
+            reward += custom_parameter.closer_reward
+        else:
+            reward -= custom_parameter.closer_reward
+        self.pre_distance = distance
+        
+        # add reward for picking up the box
         if distance < custom_parameter.crash_distance: # close enough to pick up the box
             if (math.sqrt(car.hull.linearVelocity.lengthSquared) < custom_parameter.crash_speed \
                 and car.carry is None):   # pick up the box

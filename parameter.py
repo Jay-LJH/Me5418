@@ -26,6 +26,7 @@ class custom_parameter:
     zoom = 2.7
     max_shape_dim = 381
 
+    closer_reward = 0.2 #reward for closer to box
     step_reward = -0.1  #reward for each step
     crash_reward = -10  #reward for crash
     pickup_reward = 100 #reward for pickup each box
