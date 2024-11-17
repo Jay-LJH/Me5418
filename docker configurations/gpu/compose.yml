@@ -1,0 +1,18 @@
+---
+services:
+  ereshkigal:
+    build: ./
+    user: root
+    ports:
+      - 8888:8888
+    environment:
+      - JUPYTER_TOKEN=ereshkigal
+    volumes:
+      - ./:/home/jovyan
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+...

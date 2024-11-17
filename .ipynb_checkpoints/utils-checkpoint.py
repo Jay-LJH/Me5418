@@ -11,7 +11,7 @@ class utils:
             (c[0] * zoom + translation[0], c[1] * zoom + translation[1]) for c in poly
         ]
         
-        # If not clip, chop out pixels not needed to enhance performance
+        # If not clip, chop out pixels not needed to enhance performance (?)
         if not clip or any(
             (-constants.MAX_SHAPE_DIM <= coord[0] <= constants.VIDEO_WIDTH + constants.MAX_SHAPE_DIM)
             and (-constants.MAX_SHAPE_DIM <= coord[1] <= constants.VIDEO_HEIGHT  + constants.MAX_SHAPE_DIM)

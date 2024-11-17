@@ -45,7 +45,7 @@ class cargo:
     # Let truck carry
     def set_carried(self):
         # Set it not on ground
-        self.is_on_ground = False
+        self._is_on_ground = False
 
     # Let truck observe expiration time
     def get_expiration_time(self):

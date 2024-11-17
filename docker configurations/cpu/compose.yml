@@ -1,0 +1,12 @@
+---
+services:
+  rlprogramming:
+    build: ./
+    user: root
+    ports:
+      - 8888:8888
+    environment:
+      - JUPYTER_TOKEN=rlprogramming
+    volumes:
+      - ./:/home/jovyan
+...

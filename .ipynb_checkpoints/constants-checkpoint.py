@@ -3,7 +3,7 @@ import numpy as np
 class constants:
 
     # Verbose switch
-    LOGGER = False
+    LOGGER = True
 
     # Switch between partially observable and fully observable
     FULLY_OBSERVABLE = True
@@ -35,14 +35,17 @@ class constants:
     # Floating point strict equivalance threshold
     EQUIVALANCE_THRESHOLD = 0.01
 
-    # Truck stop velocity threshold to any direction
-    STOP_THRESHOLD = 0.1
+    # Linear truck stop threshold
+    STOP_THRESHOLD_LINEAR = 1
+
+    # Angular truck stop threshold
+    STOP_THRESHOLD_ANGULAR = 0.5
 
     # Destination size
     DEST_SIZE = 4
 
     # Cargo size and random generation
-    CARGO_SIZE = 4
+    CARGO_SIZE = 2
 
     # Generate at least 2 cargoes and maximum of 5 cargoes, uniform distribution.
     MIN_NUM_CARGOES = 2
@@ -74,7 +77,7 @@ class constants:
     
     # Environment/physics definitions
     MAX_TERMINATION = 120 # Maximum time out in seconds
-    REACH_DISTANCE = 1 # Radius to be considered reaching cargo/destintation for load/unload
+    REACH_DISTANCE = 2 # Radius to be considered reaching cargo/destintation for load/unload
     
     # Reward structure, time outs and accidents lead to truncation directly 
     CRASH_REWARD = -50 # Penalty for crash with a cargo or border, accidents are strictly not allowed.
@@ -85,3 +88,12 @@ class constants:
 
     # Rendering rectangles optimization utility
     MAX_SHAPE_DIM = 64
+
+    # A3C/Neural network properties, avoid confusion of 'training parameters' and 'trained parameters'
+    '''
+    # The number of environments we are synchronously running
+    NUM_ENVS = 1
+
+    # Max number of episodes in which the agent is trained
+    MAX_EPISODES = 100000
+    '''

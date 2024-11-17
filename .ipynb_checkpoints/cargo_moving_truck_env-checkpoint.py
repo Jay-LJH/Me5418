@@ -7,6 +7,7 @@ from scipy.spatial.distance import euclidean
 from typing import Optional, Union, Any
 import random
 from datetime import datetime
+import math
 
 from constants import constants
 from truck import truck
@@ -104,19 +105,33 @@ class cargo_moving_truck_env(gym.Env):
     '''
     def reset(self, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[np.array, dict[str, Any]]:
 
-        # If no world seed specified, we obtain the entropy through timestamp.
-        if seed is not None:
-            random.seed(seed)
-        else:
-            random.seed(datetime.now().microsecond)
+        # Create a logger of the environment, pass to renderer for outputting essential information.
+        self.logger = logger()
 
         # Create a 2D world with no gravity, for the purpose of the project.
         self.world = Box2D.b2World((0, 0)) # (0, 0) gravity vector
 
-        # Randomly generate objects in question.
-        # Specificly, they are 'self.truck', 'self.cargo', 'self.destination' and determine
-        # 'self.world_gen', which is the observation space if the envionment is fully observable.
-        self._generate_world()
+        # If no world seed specified, we obtain the entropy through timestamp.
+        test_case = False
+        if seed is not None:
+            # Seeds less than 0 are easy test cases registered by self._get_test_case().
+            if seed < 0:
+                test_case = True
+                random.seed(seed)
+            else:
+                random.seed(seed)
+        else:
+            random.seed(datetime.now().microsecond)
+
+        
+        if not test_case:
+            # Randomly generate objects in question.
+            # Specificly, they are 'self.truck', 'self.cargo', 'self.destination' and determine
+            # 'self.world_gen', which is the observation space if the envionment is fully observable.
+            self._generate_world()
+        else:
+            # Generate registered test cases.
+            self._get_test_case(seed)
 
         # Initialize reward.
         self.reward = 0.0
@@ -140,15 +155,15 @@ class cargo_moving_truck_env(gym.Env):
             pygame.init()
             pygame.display.init()
             self.screen = pygame.display.set_mode((constants.VIDEO_WIDTH, constants.VIDEO_HEIGHT))
-            return (self.render(), {"reward": self.reward})
+            return (self.render(), {"reward": self.reward, "logger": self.logger})
 
         # Put world gen into additional information if fully observable space specified.
         # Also, put reward as additional information.
         if self.render_mode == 'rgb_array':
             if constants.FULLY_OBSERVABLE:
-                return (self.full_observation, {"world_gen": self.world_gen})
+                return (self.full_observation, {"world_gen": self.world_gen, "logger": self.logger})
             else:
-                return (self.render(), {})
+                return (self.render(), {"logger": self.logger})
             
         return (None, {})
 
@@ -279,12 +294,15 @@ class cargo_moving_truck_env(gym.Env):
         self.full_observation = [self.truck.collect_observation(), self.destination.collect_observation()] + \
             [cargo.collect_observation() for cargo in self.cargoes if cargo.is_on_ground()]
 
+        # Check whether the truck stops, helpful for later status checks and reward calculations
+        stop = self._is_stop()
+
         # Compute interactions of the entities in the state
         # e.g. Is there a crash? Is the truck carrying cargo?
-        status, expire_count = self._status_step()
+        status, expire_count = self._status_step(stop)
 
         # Based on status, calculate reward for this step.
-        self._calculate_reward_step(status, expire_count)
+        self._calculate_reward_step(stop, status, expire_count)
 
         # Terminate episode if global time limit is reached
         if self.t >= constants.MAX_TERMINATION:
@@ -294,15 +312,19 @@ class cargo_moving_truck_env(gym.Env):
         del self.last_observation
         self.last_observation = copy(self.full_observation)
 
+        # Ready for output from logger of observation
+        self.logger.log(self.full_observation)
+        self.logger.log(self.reward)
+
         # Render to window directly if human manipulation.
         if self.render_mode == 'human':
             self.render()
 
         # Put world gen into additional information if fully observable space specified.
         if constants.FULLY_OBSERVABLE:
-            return self.full_observation, self.reward, self.terminated, self.truncated, {"world_gen": self.world_gen}
+            return self.full_observation, self.reward, self.terminated, self.truncated, {"world_gen": self.world_gen, "logger": self.logger}
         else:
-            return self.render(), self.reward, self.terminated, self.truncated, {}
+            return self.render(), self.reward, self.terminated, self.truncated, {"logger": self.logger}
 
     '''
     From OpenAI docs
@@ -426,11 +448,22 @@ class cargo_moving_truck_env(gym.Env):
                 self.surface, poly, constants.GRASS_COLOR, constants.ZOOM, translation, angle
             )
 
+    # Determine whether the truck is almost stopped
+    # i.e. ready for unload/load, receive reward
+    def _is_stop(self) -> bool:
+
+        return math.sqrt(
+            (self.last_observation[0][0] - self.full_observation[0][0])**2 + \
+            (self.last_observation[0][1] - self.full_observation[0][1])**2) < constants.STOP_THRESHOLD_LINEAR \
+            and abs(self.last_observation[0][2] - self.full_observation[0][2]) < constants.STOP_THRESHOLD_ANGULAR
+        
+
     # Check status of everything for calculating reward.
+    # whether the truck is almost stationary is given by self._is_stop()
     # 0 for accident truncation, 1 for empty truck, 2 for loading cargo, 3 for loaded truck, 
     # 4 for unloading at destination
     # The second interger counts number of boxes expired
-    def _status_step(self) -> (int, int):
+    def _status_step(self, stop: bool) -> (int, int):
 
         vanish = 0
 
@@ -462,12 +495,13 @@ class cargo_moving_truck_env(gym.Env):
                 if distance_to_cargo < constants.REACH_DISTANCE: 
     
                     # If truck is empty and close to cargo at low velocity
-                    if (math.sqrt(self.truck.hull.linearVelocity.lengthSquared) < constants.STOP_THRESHOLD \
-                        and truck_load_logit == 0):
-    
+                    if (stop and truck_load_logit == 0):
+                        
                         # Load cargo
                         self.truck.carry(cargo)
-                        logger.log("Load")
+                        # Since cargo is loaded, delete the cargo from list
+                        self.cargoes.remove(cargo)
+                        self.logger.log("Load")
                         return (2, vanish)
                         
                     # If cargo is reached at large velocity, or if the truck is already loaded, we consider these as crashes.
@@ -487,13 +521,12 @@ class cargo_moving_truck_env(gym.Env):
             # Compute distance between destination and truck
             distance_to_destination = euclidean(truck_position, destination_position)
 
-            # If truck and cargo are close enough
-            if distance_to_destination < constants.REACH_DISTANCE:
+            # If truck and cargo are close enough and the truck stops
+            if distance_to_destination < constants.REACH_DISTANCE and stop:
 
-                # No collision for destination, just unload at low velocities
-                if math.sqrt(self.truck.hull.linearVelocity.lengthSquared) < constants.STOP_THRESHOLD:
-                    self.truck.unload()
-                    return (4, vanish)
+                # Unload
+                self.truck.unload()
+                return (4, vanish)
 
             else:
                 return (3, vanish)
@@ -503,12 +536,10 @@ class cargo_moving_truck_env(gym.Env):
     # Calculate reward after each step.
     # Give reward to status 4, penalty for status 0.
     # Also, give reward for saving energy, etc.
-    def _calculate_reward_step(self, status, expire_count):
+    def _calculate_reward_step(self, stop: bool, status: int, expire_count: int):
 
         # Reward the truck if generalized velocity is below low threshold.
-        if abs(self.last_observation[0][0] - self.full_observation[0][0]) < constants.STOP_THRESHOLD \
-        and abs(self.last_observation[0][1] - self.full_observation[0][1]) < constants.STOP_THRESHOLD \
-        and abs(self.last_observation[0][2] - self.full_observation[0][2]) < constants.STOP_THRESHOLD:
+        if stop:
             self.reward += constants.STOP_REWARD / self.metadata['FPS']
 
         # Penalty for expired cargo
@@ -530,4 +561,50 @@ class cargo_moving_truck_env(gym.Env):
         if status == 0:
             self.reward += constants.CRASH_REWARD
             self.truncated |= True
-            logger.log("Accident")
+            self.logger.log("Accident")
+
+    # Get registered test cases when the given random seed is less than 0.
+    # Make a replacement of self._generate_world().
+    # Entry from self.reset().
+    # Register easy test cases here:
+    def _get_test_case(self, seed):
+
+        # Register test cases here:
+        # Test Case 1 (seed = -1):
+        if seed == -1:
+
+            # Create world gen.
+            self.world_gen = []
+    
+            # Generate truck at (16, 16) and upwards, no emerge/vanish time.
+            self.world_gen.append([16.0, 16.0, 0, 0, 0])
+    
+            # Generate destination at (16, 50), zero orientation, no emerge/vanish time.
+            self.world_gen.append([16.0, 50.0, 0, 0, 0])
+
+            # Generate one cargo at (16, 30) at the start of simulation, and never expires before simulation terminated
+            self.world_gen.append([16.0, 30.0, 0, 0, 120.0])
+            
+        # Otherwise, the test case specified does not exist. Abort.
+        else:
+            raise SystemExit("Negative seeds are test cases, but the test case is not registered!")
+
+        # Does not make sense to change the followings unless one 
+        # want to create environment with no destination, for example
+        # Create the truck at random positions.
+        self.truck = truck(self.world, self.world_gen[0])
+        
+        # Create the destination, no need "self.world" since it has no physics.
+        self.destination = destination(self.world_gen[1])
+
+        # Pre-create the cargoes, this is somewhat anti-intuitive but convenient for parallizing entity workflow.
+        self.cargoes = [cargo(metadata) for metadata in self.world_gen[2:]]
+
+        # Create full observation data by collecting all the object observations
+        self.full_observation = [self.truck.collect_observation(), self.destination.collect_observation()] + \
+            [cargo.collect_observation() for cargo in self.cargoes if cargo.is_on_ground()]
+
+        # Create last observation buffer, since we need to give reward based on state transfer.
+        self.last_observation = copy(self.full_observation)
+
+        

@@ -102,7 +102,7 @@ class truck(Car):
                            (self.hull.position[0] + constants.CARRIED_CARGO_SIZE / 2, self.hull.position[1] + constants.CARRIED_CARGO_SIZE / 2), 
                            (self.hull.position[0] - constants.CARRIED_CARGO_SIZE / 2, self.hull.position[1] + constants.CARRIED_CARGO_SIZE / 2)]
 
-            utils.draw_colored_polygon(surface, coordinates, constants.CARGO_COLOR, zoom, trans, angle)
+            utils.draw_colored_polygon(surface, coordinates, constants.CARGO_COLOR, zoom, translation, angle)
 
     def __del__(self):
         del self.metadata
