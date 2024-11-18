@@ -5,6 +5,7 @@ from torch.cuda.amp.autocast_mode import autocast
 from parameter import *
 import numpy as np
 
+# residual block
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1):
         super(ResidualBlock, self).__init__()
@@ -19,7 +20,7 @@ class ResidualBlock(nn.Module):
                 nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
                 nn.BatchNorm2d(out_channels)
             )
-            
+    # forward pass        
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
@@ -30,14 +31,30 @@ class ResidualBlock(nn.Module):
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
+        # input size is 96x96x3 res block
         self.layer1 = self.make_layer(ResidualBlock, training_parameter.net_size, training_parameter.net_size, 2)
         self.layer2 = self.make_layer(ResidualBlock, training_parameter.net_size, training_parameter.net_size, 2)
-        self.lstm = nn.LSTMCell(input_size=training_parameter.net_size, hidden_size=training_parameter.net_size)
-        self.fc1 = nn.Linear(in_features=7*5, out_features=training_parameter.net_size)
+        # fully connected layer for vector and view
+        self.fc1 = nn.Linear(in_features=training_parameter.vector_len, out_features=training_parameter.net_size)
         self.fc2 = nn.Linear(in_features=training_parameter.net_size, out_features=training_parameter.net_size)
+        # fully connected layer for downsampled view
+        flatten_length = custom_parameter.render_height*custom_parameter.render_width*training_parameter.channel
+        self.fc3 = nn.Linear(in_features=flatten_length, out_features=training_parameter.net_size)
+        self.fc4 = nn.Linear(in_features=custom_parameter.width*custom_parameter.height, out_features=training_parameter.net_size)
+        self.lstm = nn.LSTMCell(input_size=training_parameter.net_size, hidden_size=training_parameter.net_size)
         self.policy_output = nn.Linear(training_parameter.net_size, 3)
         self.value_output = nn.Linear(training_parameter.net_size, 1)
+        # initialize network parameters using kaiming initialization
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
         
+    # make the res block
     def make_layer(self, block, in_channels, out_channels, blocks, stride=1):
         layers = []
         layers.append(block(in_channels, out_channels, stride))
@@ -45,17 +62,31 @@ class Net(nn.Module):
             layers.append(block(out_channels, out_channels))
         return nn.Sequential(*layers)
     
-    def forward(self, x, hidden_state):
-        x = x.view(-1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+    def forward(self, view,v,box, hidden_state):
+        # first apply the res block
+        x = self.layer1(view)
+        x = self.layer2(x)
+        x = x.view(x.size(0), -1)
+        # apply the fully connected layer
+        x = self.fc3(x)
+        v = self.fc1(v)
+        # add the view and vector
+        v = torch.reshape(v, (1, v.shape[0]))
+        x =  x + v
+        # add the box matrix
+        box = box.view(x.size(0), -1)
+        box = self.fc4(box)
+        x = x + box
+        # apply the lstm
+        x = x.squeeze()
         x, lstm_memory = self.lstm(x, hidden_state)
         hidden_state = (x, lstm_memory)
+        # get the policy and value and normalize the policy
         policy = self.policy_output(x)
+        policy = policy.squeeze()
         value = self.value_output(x)
-        policy[0]=torch.tanh(policy[0])
-        policy[1]=torch.sigmoid(policy[1])
-        policy[2]=torch.sigmoid(policy[2])
-        policy[1] =(policy[1]>0.5).float()
-        policy[2] =(policy[2]>0.5).float()
+        value = value.squeeze()
+        policy[0] = torch.tanh(policy[0])
+        policy[1] = torch.sigmoid(policy[1])
+        policy[2] = torch.sigmoid(policy[2])
         return policy, value, hidden_state

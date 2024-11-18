@@ -23,28 +23,23 @@ class logger:
             print(message)
 
 class box:
-    def __init__(self, env,x, y, width, height,expire_time):
+    def __init__(self, env,x, y, width = custom_parameter.box_width, height=custom_parameter.box_height):
         self.env = env
         self.x = x
         self.y = y
         self.width = width
         self.height = height
-        self.expire_time = expire_time
-        self.expired = False
         self.carry = False
-        # self.body= self.env.world.CreateStaticBody(
-        #     position=(x, y),
-        #     shapes=polygonShape(box=(width/2, height/2)),
-        # )
-        self.env.box_matrix[x][y] = expire_time
+        self.env.box_matrix[x][y] = 1
         self.collision_enter = False
         self.pre_distance = 1e9
+        
     def reward(self,car):
         reward = 0  
         distance = euclidean((car.hull.position), (self.x, self.y))
-        
+
         # add reward for getting closer to the box, this reward only apply when the car is not carrying a box
-        if not self.carry and not self.expired and self.env.car.carry is None:
+        if self.env.car.carry is None:
             if distance < self.pre_distance:
                 reward += custom_parameter.closer_reward/distance
             else:
@@ -52,40 +47,15 @@ class box:
         self.pre_distance = distance
         
         # add reward for picking up the box
-        if distance < custom_parameter.crash_distance: # close enough to pick up the box
-            if (math.sqrt(car.hull.linearVelocity.lengthSquared) < custom_parameter.crash_speed \
-                and car.carry is None):   # pick up the box
-                car.carry = self
-                self.carry = True
-                reward += custom_parameter.pickup_reward
-                self.env.box_matrix[self.x][self.y] = 0
-                self.destroy_on_map() # destroy the box on the map
-                logger.log("Pick up")
-
-            elif self.collision_enter == False: # if crash for the first time
-                reward += custom_parameter.crash_reward
-                self.collision_enter = True
-                logger.log("Crash")
-        else:
-            self.collision_enter = False
-
-        if self.env.t > self.expire_time: # if the box is expired
-            if self.expired:
-                reward += custom_parameter.expire_reward_continuous
-            else:
-                self.expired = True
-                reward += custom_parameter.expire_reward
-                logger.log("expire box at ({},{}),expire time: {}".format(self.x, self.y, self.expire_time))
-
-        if (self.env.t>self.expire_time + custom_parameter.destory_time): #destroy the box after it expired for 20 seconds
-            self.destroy_on_map()
-            self.destroy()
-            if car.carry == self:
-                car.carry = None
-            logger.log("Destroy box at ({},{},destroy time: {})".format(self.x, self.y,self.env.t))
+        if distance < custom_parameter.pickup_distance \
+            and math.sqrt(self.env.car.hull.linearVelocity.lengthSquared) < custom_parameter.pickup_speed\
+                and not self.carry:
+            self.carry = True
+            self.env.car.carry = self
+            reward += custom_parameter.pickup_reward
+            logger.log("Pick up box")
         return reward
-    def get_obs(self):
-        return [self.x, self.y, self.carry,self.expire_time]
+
     def destroy_on_map(self):
         self.env.box_matrix[self.x][self.y] = 0
         # self.env.world.DestroyBody(self.body)
@@ -93,16 +63,13 @@ class box:
     def destroy(self):
         self.env.box_list.remove(self)
 
-
 class CustomCarRacing(gym.Env):
     def __init__(self,render_mode='human'):
         self.action_space = spaces.Box(
                 np.array([-1, 0, 0]).astype(np.float32),
                 np.array([+1, +1, +1]).astype(np.float32),
             ) 
-        self.observation_space = spaces.Box(
-            low=0, high=255, shape=(custom_parameter.height, custom_parameter.width, 3), dtype=np.uint8
-        ) # observation space is a height*width*3 numpy array, representing the RGB image of the map             
+                    
         self.FPS = custom_parameter.FPS
         self.width = custom_parameter.width
         self.height = custom_parameter.height
@@ -120,14 +87,18 @@ class CustomCarRacing(gym.Env):
         self.create_box()
         self.reward = self.calculate_reward()
         self.state = self.render('rgb_array')
+        if self.car.carry is not None:
+            self.done = True
         if self.render_mode == 'human':
             self.render()
-        if self.t > 60: # if the car run for 60 seconds, end the game
+        if self.t > custom_parameter.max_time: # if the car run for 60 seconds, end the game
             self.done = True
+            logger.log("Time out")
         return self.get_obs(), self.reward, self.done
 
     def calculate_reward(self):
-        step_reward = custom_parameter.step_reward #small neg reward for each step
+        #small neg reward for each step       
+        step_reward = custom_parameter.step_reward         
         for b in self.box_list:
             step_reward += b.reward(self.car) # add reward for each box
             
@@ -140,54 +111,46 @@ class CustomCarRacing(gym.Env):
         if abs(self.action[2]) > 0.5:
             valid_action += 1
         if valid_action > 1:
-            step_reward += custom_parameter.action_reward    
-                
-        # add reward for reaching destination and get closer to the destination
-        if self.car.carry is not None: 
-            distance = euclidean((self.car.hull.position), (self.destionation))
-            if distance < custom_parameter.crash_distance and math.sqrt(self.car.hull.linearVelocity.lengthSquared) < custom_parameter.crash_speed:
-                self.car.carry.destroy()
-                self.car.carry = None
-                step_reward += custom_parameter.reach_reward
-                logger.log("Reach")
-            # add reward for getting closer to the destination
-            if distance < self.destination_pre_distance:
-                step_reward += custom_parameter.closer_reward*2/distance
-            else:
-                step_reward -= custom_parameter.closer_reward*2/distance
-            self.destination_pre_distance = distance
-                
+            step_reward += custom_parameter.action_reward
+        # add reward for reach new grid
+        x = int(self.car.hull.position[0])
+        y = int(self.car.hull.position[1])
+        if self.explore_matrix[x][y] == 0:
+            self.explore_matrix[x][y] = 1
+            step_reward += custom_parameter.explore_reward
+               
+        # add negative reward for car stay at the same position for a long time
+        if self.car.hull.linearVelocity.lengthSquared < 0.1:
+            self.stay_time += 1
+        else:
+            self.stay_time = 0
+        if self.stay_time > 20 and self.box_list != []:
+            step_reward += custom_parameter.stay_reward
+              
         # if the car get out of the map, reset the car and add negative reward
         if self.car.hull.position[0] < 0 or self.car.hull.position[0] > self.width \
             or self.car.hull.position[1] < 0 or self.car.hull.position[1] > self.height:
             self.car.hull.position = (self.width/2, self.height/2)
             self.car.hull.linearVelocity = (0, 0)
             self.car.hull.angle = 0
-            step_reward += custom_parameter.crash_reward
+            step_reward += custom_parameter.out_reward
             logger.log("Out of map")
         return step_reward  
     
-    def get_car_obs(self):
-        return [self.car.hull.position[0], self.car.hull.position[1], self.car.hull.linearVelocity[0], \
-            self.car.hull.linearVelocity[1],self.car.hull.angle]
-    def get_dest_obs(self):
-        return [self.destionation[0], self.destionation[1]]
-    
+    # the observation of the env consists of two parts: the RGB image of the map and the state of the car and the destination
     def get_obs(self):
-        obs =  [self.get_car_obs(),self.get_dest_obs()]
-        box_obs = [self.box_list[b].get_obs() for b in range(min(5,len(self.box_list)))]
-        for b in box_obs:
-            obs.append(b)
-        target_obs = np.zeros((7,5),dtype=np.float32)
-        for i in range(len(obs)):
-            for j in range(len(obs[i])):
-                target_obs[i][j] = obs[i][j]
-        return target_obs
-                   
+        view = self.render('rgb_array')
+        v = [self.car.hull.position[0], self.car.hull.position[1], self.car.hull.linearVelocity[0], \
+            self.car.hull.linearVelocity[1],self.car.hull.angle, self.destionation[0], self.destionation[1],\
+                0 if self.car.carry is None else 1]
+        v = np.array(v,dtype=np.float32)
+        return {'view':view,'box':self.box_matrix , 'v':v}
+    
     def reset(self):
+        logger.log("Reset")
         random.seed(custom_parameter.random_seed)
         self.world = Box2D.b2World((0, 0)) #（0，0） gravity vector 
-        self.box_matrix = np.zeros((custom_parameter.width, custom_parameter.height))
+        self.box_matrix = np.zeros((custom_parameter.width, custom_parameter.height),dtype=np.float32)
         self.reward = 0.0
         self.prev_reward = 0.0
         self.done = False
@@ -200,10 +163,12 @@ class CustomCarRacing(gym.Env):
         self.screen = None
         self.clock = None
         self.destination_pre_distance = 1e9
+        self.stay_time = 0
         if self.render_mode == 'human':
             self.render()
-        return self.get_obs()
-        
+        self.explore_matrix = np.zeros((custom_parameter.width, custom_parameter.height),dtype=np.float32)
+        return self.get_obs()       
+
     def create_box(self):
         if self.t>self.next_create_time and len(self.box_list) < 1:
             self.next_create_time = np.random.normal(custom_parameter.create_time, custom_parameter.sigma) + self.t
@@ -212,8 +177,7 @@ class CustomCarRacing(gym.Env):
             while self.box_matrix[x][y] != 0  or (x,y) == self.destionation: 
                 x = np.random.randint(0, self.width)
                 y = np.random.randint(0, self.height)
-            self.box_list.append(box(self, x, y, custom_parameter.box_width, custom_parameter.box_height, 
-                                     self.t + np.random.normal(custom_parameter.expire_time, custom_parameter.sigma)))
+            self.box_list.append(box(self, x, y))
 
     # copy from gymnasium.envs.box2d.car_racing
     def render(self, mode='human', close=False):
@@ -251,7 +215,7 @@ class CustomCarRacing(gym.Env):
             pygame.display.flip()
             
         if mode == "rgb_array":
-            return self._create_image_array(self.surf, (custom_parameter.width, custom_parameter.height))
+            return self._create_image_array(self.surf, (custom_parameter.render_width, custom_parameter.render_height))
 
     def render_objects(self,zoom, translation, angle):
         # draw background
@@ -323,7 +287,7 @@ class CustomCarRacing(gym.Env):
     def _create_image_array(self, screen, size):
         scaled_screen = pygame.transform.smoothscale(screen, size)
         return np.transpose(
-            np.array(pygame.surfarray.pixels3d(scaled_screen)), axes=(1, 0, 2)
+            np.array(pygame.surfarray.pixels3d(scaled_screen),dtype = np.float32), axes=(1, 0, 2)
         )
         
     def close(self):

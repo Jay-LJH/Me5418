@@ -15,7 +15,6 @@ import sys
 import torch
 import time
 
-# logger class for debug, if logger is True, print the message
 class logger:
     def __init__(self):
         self.log = custom_parameter.logger
@@ -23,9 +22,7 @@ class logger:
         if logger.log:
             print(message)
 
-# class for box, each box has a position and a state of carrying
 class box:
-    # init the box with position and state of carrying, mark the box on the map
     def __init__(self, env,x, y, width = custom_parameter.box_width, height=custom_parameter.box_height):
         self.env = env
         self.x = x
@@ -37,7 +34,6 @@ class box:
         self.collision_enter = False
         self.pre_distance = 1e9
         
-    # compute the reward of the box    
     def reward(self,car):
         reward = 0  
         distance = euclidean((car.hull.position), (self.x, self.y))
@@ -51,27 +47,23 @@ class box:
         self.pre_distance = distance
         
         # add reward for picking up the box
-        # if the car is close enough to the box and the speed of the car is slow enough and empty, pick up the box
         if distance < custom_parameter.pickup_distance \
             and math.sqrt(self.env.car.hull.linearVelocity.lengthSquared) < custom_parameter.pickup_speed\
                 and not self.carry:
             self.carry = True
             self.env.car.carry = self
             reward += custom_parameter.pickup_reward
+            logger.log("Pick up box")
         return reward
 
-    # destroy the box on the map
     def destroy_on_map(self):
         self.env.box_matrix[self.x][self.y] = 0
         # self.env.world.DestroyBody(self.body)
-    
-    # destroy the box in the list, called when the box is send to the destination  
+        
     def destroy(self):
         self.env.box_list.remove(self)
 
-# custom car racing environment, the car need to pick up the box and send it to the destination
 class CustomCarRacing(gym.Env):
-    # init the environment with the action space and the render mode
     def __init__(self,render_mode='human'):
         self.action_space = spaces.Box(
                 np.array([-1, 0, 0]).astype(np.float32),
@@ -83,36 +75,30 @@ class CustomCarRacing(gym.Env):
         self.height = custom_parameter.height
         self.render_mode = render_mode
 
-    # step function, take the action and return the observation, reward
     def step(self, action:Union[np.ndarray, int]):
-        # action is a numpy array, the first element is the steering, 
-        # the second element is the gas, the third element is the brake
         self.action = action
         if action is not None:
             self.car.steer(-action[0])
             self.car.gas(action[1])
             self.car.brake(action[2])
-        # step the car and the world
         self.car.step(1.0/self.FPS)
         self.t += 1.0/self.FPS
-        self.world.Step(1.0/self.FPS, 6*30, 2*30) # 6*30 and 2*30 are velocity iterations and position iterations
-        # create a new box if needed
+        self.world.Step(1.0/self.FPS, 6*30, 2*30)
         self.create_box()
-        # calculate the reward
         self.reward = self.calculate_reward()
-
-        # render the map and show on pygame window if the render mode is human
+        self.state = self.render('rgb_array')
+        if self.car.carry is not None:
+            self.done = True
         if self.render_mode == 'human':
             self.render()
-        if self.t > custom_parameter.max_time: # if the environment run for more than 60 seconds, end the game
+        if self.t > custom_parameter.max_time: # if the car run for 60 seconds, end the game
             self.done = True
+            logger.log("Time out")
         return self.get_obs(), self.reward, self.done
 
     def calculate_reward(self):
-        step_reward = custom_parameter.step_reward #small neg reward for each step
-        for b in self.box_list:
-            step_reward += b.reward(self.car) # add reward for each box
-            
+        #small neg reward for each step       
+        step_reward = custom_parameter.step_reward 
         # negative reward for if at least two actions are not zero
         valid_action = 0
         if abs(self.action[0]) > 0.2:
@@ -122,23 +108,14 @@ class CustomCarRacing(gym.Env):
         if abs(self.action[2]) > 0.5:
             valid_action += 1
         if valid_action > 1:
-            step_reward += custom_parameter.action_reward   
-                
-        # add reward for reaching destination and get closer to the destination
-        if self.car.carry is not None: 
-            distance = euclidean((self.car.hull.position), (self.destionation))
-            if distance < custom_parameter.pickup_distance and math.sqrt(self.car.hull.linearVelocity.lengthSquared) < custom_parameter.pickup_speed:
-                self.car.carry.destroy()
-                self.car.carry = None
-                step_reward += custom_parameter.reach_reward
-                logger.log("Reach")
-            # add reward for getting closer to the destination
-            if distance < self.destination_pre_distance:
-                step_reward += custom_parameter.closer_reward*2/distance
-            else:
-                step_reward -= custom_parameter.closer_reward*2/distance
-            self.destination_pre_distance = distance 
-        
+            step_reward += custom_parameter.action_reward
+        # add reward for reach new grid
+        x = int(self.car.hull.position[0])
+        y = int(self.car.hull.position[1])
+        if self.explore_matrix[x][y] == 0:
+            self.explore_matrix[x][y] = 1
+            step_reward += custom_parameter.explore_reward
+               
         # add negative reward for car stay at the same position for a long time
         if self.car.hull.linearVelocity.lengthSquared < 0.1:
             self.stay_time += 1
@@ -166,36 +143,34 @@ class CustomCarRacing(gym.Env):
         v = np.array(v,dtype=np.float32)
         return {'view':view,'box':self.box_matrix , 'v':v}
     
-    # reset the environment, create a new map and a new car
     def reset(self):
+        logger.log("Reset")
+        random.seed(custom_parameter.random_seed)
         self.world = Box2D.b2World((0, 0)) #（0，0） gravity vector 
-        # box matrix is a matrix to mark the position of the box on the map
         self.box_matrix = np.zeros((custom_parameter.width, custom_parameter.height),dtype=np.float32)
-        self.reward = 0.0 
+        self.reward = 0.0
         self.prev_reward = 0.0
         self.done = False
         self.next_create_time = 0 #time to create next box, create a box at time 0
         self.car = Car(self.world, 0, custom_parameter.width/2, custom_parameter.height/2) #create a car in the middle of the map
         self.car.carry = None
         self.destionation = (random.randint(0, self.width), random.randint(0, self.height))
-        self.t=0 # simulation time
-        self.box_list = [] # list of exist boxes
-        self.screen = None # pygame screen
-        self.clock = None # pygame clock
-        self.destination_pre_distance = 1e9 # for reward calculation
+        self.t=0
+        self.box_list = []
+        self.screen = None
+        self.clock = None
+        self.destination_pre_distance = 1e9
         self.stay_time = 0
-        # render the map and show on pygame window if the render mode is human 
         if self.render_mode == 'human':
             self.render()
-        return self.get_obs()
-        
-    # create a new box if the time is up
+        self.explore_matrix = np.zeros((custom_parameter.width, custom_parameter.height),dtype=np.float32)
+        return self.get_obs()       
+
     def create_box(self):
-        if self.t>self.next_create_time:
+        if self.t>self.next_create_time and len(self.box_list) < 1:
             self.next_create_time = np.random.normal(custom_parameter.create_time, custom_parameter.sigma) + self.t
             x = np.random.randint(0, self.width)
             y = np.random.randint(0, self.height)
-            # create a new box if the position is empty
             while self.box_matrix[x][y] != 0  or (x,y) == self.destionation: 
                 x = np.random.randint(0, self.width)
                 y = np.random.randint(0, self.height)
@@ -204,14 +179,12 @@ class CustomCarRacing(gym.Env):
     # copy from gymnasium.envs.box2d.car_racing
     def render(self, mode='human', close=False):
         pygame.font.init()
-        # initialize the pygame screen
         if self.screen is None and mode == "human":
             pygame.init()
             pygame.display.init()
             self.screen = pygame.display.set_mode((custom_parameter.video_width, custom_parameter.video_height))
         if self.clock is None:
             self.clock = pygame.time.Clock()
-        # create a new surface
         self.surf = pygame.Surface((custom_parameter.video_width, custom_parameter.video_height))
         # computing transformations
         angle = -self.car.hull.angle
@@ -221,9 +194,7 @@ class CustomCarRacing(gym.Env):
         scroll_y = -(self.car.hull.position[1]) * zoom
         trans = pygame.math.Vector2((scroll_x, scroll_y)).rotate_rad(angle)
         trans = ( custom_parameter.video_width/ 2 + trans[0], custom_parameter.video_height / 4 + trans[1])
-        # render the objects on the surface
         self.render_objects(zoom,trans,angle)
-        # draw the car on the surface
         self.car.draw(
             self.surf,
             zoom,
@@ -232,7 +203,6 @@ class CustomCarRacing(gym.Env):
             mode not in ["state_pixels_list", "state_pixels"],
         )
         self.surf = pygame.transform.flip(self.surf, False, True)
-        # render the surface on the screen
         if mode == "human":
             pygame.event.pump()
             self.clock.tick(custom_parameter.FPS)
@@ -294,7 +264,7 @@ class CustomCarRacing(gym.Env):
             self.surf, dest, custom_parameter.dest_color, zoom, translation, angle
         )
 
-    # draw a polygon on the surface
+    # copy from gymnasium.envs.box2d.car_racing
     def _draw_colored_polygon(
         self, surface, poly, color, zoom, translation, angle, clip=True
     ):
@@ -310,14 +280,13 @@ class CustomCarRacing(gym.Env):
             gfxdraw.aapolygon(self.surf, poly, color)
             gfxdraw.filled_polygon(self.surf, poly, color)
    
-    # create an image array from the surface, for rgb_array render mode
+    # copy from gymnasium.envs.box2d.car_racing
     def _create_image_array(self, screen, size):
         scaled_screen = pygame.transform.smoothscale(screen, size)
         return np.transpose(
             np.array(pygame.surfarray.pixels3d(scaled_screen),dtype = np.float32), axes=(1, 0, 2)
         )
-    
-    # close the environment
+        
     def close(self):
         if self.screen is not None:
             pygame.display.quit()
@@ -325,7 +294,6 @@ class CustomCarRacing(gym.Env):
 
 if __name__ == "__main__":
     a = np.array([0.0, 0.0, 0.0])
-    # for human player control
     def register_input():
         global quit, restart
         for event in pygame.event.get():
@@ -356,10 +324,8 @@ if __name__ == "__main__":
             if event.type == pygame.QUIT:
                 quit = True
 
-    # create the environment 
     env = CustomCarRacing(render_mode="human")
     env.reset()
-    # load the model if the model path is provided
     if len(sys.argv) > 1:
         model = Model()
         net_dict = torch.load(sys.argv[1])
@@ -368,7 +334,6 @@ if __name__ == "__main__":
         model = None
     quit = False
     while not quit:
-        # if the model is provided, use the model to take action, otherwise use the human player control
         env.reset()
         hidden_state = None
         total_reward = 0.0
@@ -382,7 +347,6 @@ if __name__ == "__main__":
                 register_input()
             s, r, terminated= env.step(a)
             total_reward += r
-            # print the action and the total reward every 200 steps
             if steps % 200 == 0 or terminated :
                 print("\naction " + str([f"{x:+0.2f}" for x in a]))
                 print(f"step {steps} total_reward {total_reward:+0.2f} at time {env.t}")
