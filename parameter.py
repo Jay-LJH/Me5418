@@ -26,13 +26,14 @@ class custom_parameter:
     zoom = 2.7
     max_shape_dim = 381
 
-    closer_reward = 0.2 #reward for closer to box
+    closer_reward = 2 #reward for closer to box, this reward become higher when closer to box, negative if further
     step_reward = -0.1  #reward for each step
     crash_reward = -10  #reward for crash
     pickup_reward = 100 #reward for pickup each box
     reach_reward = 100  #reward for reach destination
     expire_reward = -10 #reward for expire box
     expire_reward_continuous = -0.01 #reward for expire box each frame
+    action_reward = -0.5 #reward for each action
 
 class training_parameter:
     wandb = True

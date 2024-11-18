@@ -4,7 +4,7 @@ from parameter import *
 from model import Model
 from custom_env import *
 import ray
-
+vvf
 class Runner:
     def __init__(self,env_id) :
         self.env_id = env_id
@@ -37,7 +37,7 @@ class Runner:
                 if done:
                     matrix = self.env.reset()
                     hidden_state = None
-                step += 1 
+                step += 1
         db_matrix = np.array(db_matrix)     
         db_policy = np.concatenate(db_policy, axis=0)
         db_value = np.concatenate(db_value, axis=0)

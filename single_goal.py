@@ -204,9 +204,8 @@ class CustomCarRacing(gym.Env):
             self.render()
         return self.get_obs()
         
-
     def create_box(self):
-        if(self.t>self.next_create_time):
+        if self.t>self.next_create_time and len(self.box_list) < 1:
             self.next_create_time = np.random.normal(custom_parameter.create_time, custom_parameter.sigma) + self.t
             x = np.random.randint(0, self.width)
             y = np.random.randint(0, self.height)

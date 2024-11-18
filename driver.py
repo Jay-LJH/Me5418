@@ -19,6 +19,11 @@ def main():
     curr_steps = curr_episodes = map_update=last_model_t = 0
     update_done = True
     job_list = []
+    # set the model path to current time
+    now = datetime.datetime.now()
+    dir_path = "model/" +str(now.strftime("%Y-%m-%d-%H-%M"))
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
     while total_steps < training_parameter.max_step:
         if update_done:
                 map_update += 1
@@ -59,7 +64,7 @@ def main():
         # save model
         if (curr_steps - last_model_t) >= training_parameter.save_interval:
             last_model_t = curr_steps
-            model_path = "model/" +str(datetime.datetime.now().date())+"/" +str(curr_steps)
+            model_path = dir_path + "/" + str(curr_steps)
             os.makedirs(model_path)
             path_checkpoint = model_path + "/map_net_checkpoint.pkl"
             net_checkpoint = {"model": global_model.net.state_dict(),

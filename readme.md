@@ -20,7 +20,9 @@ if you don't want to use wandb to record training parameter, pls mark it to Fals
 
 ## model usage
 
-python custom <path-to-model-file>
+python custom.py path-to-model-file
+
+for example: python custom.py model/2024-11-08/66560/map_net_checkpoint.pkl
 
 # file explaination
 
