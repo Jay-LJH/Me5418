@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from parameter import *
 from model import Model
-from learn_to_explore import *
+from custom_env import *
 import ray
 
 # Runner class to run the environment and collect data
